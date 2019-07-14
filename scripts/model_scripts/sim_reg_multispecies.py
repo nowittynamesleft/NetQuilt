@@ -25,12 +25,16 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 
 
+#BATCH_SIZE = 1024
 BATCH_SIZE = 128
 NB_EPOCH = 100
-#LR = 0.01 this doesn't do anything, define learning rate in model function
+LR = 0.01
 RESULTS_PATH = '../results/test/'
-SIM_REG_LAMB = float(sys.argv[-1])
-print(SIM_REG_LAMB)
+SIM_REG_RANGE = [0.0, 1.0, 0.1, 0.01, 0.001, 0.0001, 0.00001]
+print('SIM REG RANGE:')
+print(SIM_REG_RANGE)
+#SIM_REG_LAMB = float(sys.argv[-1])
+#print(SIM_REG_LAMB)
 
 # python multispecies.py annot_fname ont model_name network_folder tax_ids alpha test_go_id_fname
 # example for running autoencoder on human and testing on human on the goids chosen from model-org go ids: python sim_reg_multispecies.py /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606_string.04_2015_annotations.pckl molecular_function human_only_sim_reg /mnt/ceph/users/vgligorijevic/PFL/data/string/ 9606 1.0 /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606-model-org_molecular_function_train_goids.pckl 0.0
@@ -113,8 +117,9 @@ def export_history(history, model_name, kwrd, results_path=RESULTS_PATH):
     plt.savefig(results_path + model_name.split('-')[0] + '_' + kwrd + '_sim_loss.png', bbox_inches='tight')
 
 
-def build_sim_reg_model(X, input_dims, arch, train_inds, test_inds, train_sim_mat, val_sim_mat, labeled_vec_train, labeled_vec_test, nf=0.5, std=1.0, epochs=NB_EPOCH, batch_size=BATCH_SIZE, sim_reg_lamb=SIM_REG_LAMB):
-    sim_reg_model = build_sim_reg_AE(input_dims[0], arch, sim_reg_lamb, hidden_activation='tanh')
+def build_sim_reg_model(X, input_dims, arch, train_inds, test_inds, train_sim_mat, val_sim_mat, labeled_vec_train, labeled_vec_test, 
+                                nf=0.5, std=1.0, epochs=NB_EPOCH, batch_size=BATCH_SIZE, sim_reg_lamb=1.0, learning_rate=LR):
+    sim_reg_model = build_sim_reg_AE(input_dims[0], arch, sim_reg_lamb, hidden_activation='tanh', lr=learning_rate)
     # corrupting the input
     noise_factor = nf
     if isinstance(X, list):
@@ -209,11 +214,11 @@ def get_annotated_mats(X, Y):
     return X_annotated, X_unannotated, Y_annotated, nonzero_annot_row_inds
 
 
-def get_sim_mats(Y_annotated, train_inds, total_sample_size):
+def get_sim_mats(Y, train_inds, total_sample_size):
     # calculating pairwise equality of binary labels, converting each row of binary digits to decimal in order to calculate equality
     # only get the train similarity matrix for now
-    y_train_with_zero_rows = np.zeros_like(Y_annotated)
-    y_train_with_zero_rows[train_inds, :] = np.copy(Y_annotated[train_inds, :])
+    y_train_with_zero_rows = np.zeros_like(Y)
+    y_train_with_zero_rows[train_inds, :] = np.copy(Y[train_inds, :])
 
     print('If two labeled proteins have at least one considered annotation in common, they are considered similar. If not, they are different.')
     train_sim_mat = np.array(cosine_similarity(y_train_with_zero_rows) > 0, dtype=np.float32)
@@ -233,7 +238,7 @@ def get_sim_mats(Y_annotated, train_inds, total_sample_size):
     total_sim_mat_train = np.zeros((total_sample_size, total_sample_size), dtype=np.float32)
 
     print('Filling big sim mat')
-    all_uniprot_inds = np.arange(Y_annotated.shape[0])
+    all_uniprot_inds = np.arange(Y.shape[0])
     print('All uniprot inds')
     print(all_uniprot_inds.shape)
     all_uniprot_list_inds = [[ind] for ind in all_uniprot_inds] # weird numpy array index assignment (https://stackoverflow.com/questions/30917753/subsetting-a-2d-numpy-array)
@@ -241,16 +246,20 @@ def get_sim_mats(Y_annotated, train_inds, total_sample_size):
     total_sim_mat_train[all_uniprot_list_inds, all_uniprot_inds] = train_sim_mat # train sim mat includes only training similarities (rest are zero)
 
     similar_inds = np.where(total_sim_mat_train == 1)
-    '''
     print(similar_inds[:10])
     print('First 10 total_sim_mat_train similar pair inds(only diag inds where there are annots)')
     for i in range(0, 10):
-        print('Should be 0')
-        print(sum(Y_annotated[similar_inds[0][i], :] != Y_annotated[similar_inds[1][i], :]))
+        #print('Should be 0 if full match is used')
+        #print(sum(Y[similar_inds[0][i], :] != Y[similar_inds[1][i], :]))
+        #assert sum(Y[similar_inds[0][i], :] != Y[similar_inds[1][i], :]) == 0
+        print('should be at least 1 in common if there are any annots')
+        print(np.intersect1d(np.where(Y[similar_inds[0][i], :])[0], Y[similar_inds[1][i], :]).shape[0])
         print('How many annots each?')
-        print(sum(Y_annotated[similar_inds[0][i], :]))
-        print(sum(Y_annotated[similar_inds[1][i], :]))
-    '''
+        print(sum(Y[similar_inds[0][i], :]))
+        print(sum(Y[similar_inds[1][i], :]))
+        if sum(Y[similar_inds[0][i], :]) > 0:
+            assert np.intersect1d(np.where(Y[similar_inds[0][i], :])[0], Y[similar_inds[1][i], :]).shape[0] > 0
+        
 
     diag_inds = np.array(range(0, total_sim_mat_train.shape[0]))
     total_sim_mat_train[diag_inds, diag_inds] = 1.
@@ -305,10 +314,14 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
     # selected goids
     test_goids = pickle.load(open(test_goid_fname, 'rb'))
     test_funcs = [goterms.index(goid) for goid in test_goids]
-    Y = Y[:, test_funcs]
+    Y_big = np.copy(Y)
+    Y = Y_big[:, test_funcs]
 
     # aligned data
     X_aligned, X_unaligned, Y_aligned = get_aligned_mats(X, Y, annot_prots, string_prots)
+    _, _, Y_big_aligned = get_aligned_mats(X, Y_big, annot_prots, string_prots)
+    assert Y_big_aligned.shape[0] == Y_aligned.shape[0]
+    # X_aligned and X_unaligned are unaffected by this
     '''
     for i in range(0, 10):
         print('This is a common aligned protein: ' + str(aligned_prots[i]))
@@ -321,6 +334,7 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
 
     # take only nonzero rows of Y and put them in Y_annotated
     X_annotated, X_unannotated, Y_annotated, nonzero_annot_row_inds = get_annotated_mats(X_aligned, Y_aligned)
+    X_big_annotated, X_big_unannotated, Y_big_annotated, nonzero_big_annot_row_inds = get_annotated_mats(X_aligned, Y_big_aligned)
     '''
     for i in range(0, 10):
         print('This is a common annotated protein: ' + str(annotated_prots[i]))
@@ -330,85 +344,109 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
         print('This is its partial annotation: ' + str(annotation))
     '''
 
-    # okay, so the above seems fine...what gives?
-    n_trials = 5
-    y_score_trials = np.zeros((Y.shape[1], n_trials), dtype=np.float)
-    trial_perfs = {}
-    trial_perfs['pr_micro'] = []
-    trial_perfs['pr_macro'] = []
-    trial_perfs['F1'] = []
-    trial_perfs['acc'] = []
-    print('Cross validation')
-    print('Num trials: ' + str(n_trials))
-    for trial in range(0, n_trials):
+    for sim_reg_lamb in SIM_REG_RANGE:
+        # okay, so the above seems fine...what gives?
+        n_trials = 10
+        y_score_trials = np.zeros((Y.shape[1], n_trials), dtype=np.float)
+        trial_perfs = {}
+        trial_perfs['pr_micro'] = []
+        trial_perfs['pr_macro'] = []
+        trial_perfs['F1'] = []
+        trial_perfs['acc'] = []
+        print('Cross validation')
+        print('Num trials: ' + str(n_trials))
+        for trial in range(0, n_trials):
 
-        annot_train_inds, annot_test_inds = train_test_split(np.arange(0, Y_annotated.shape[0]), test_size=0.2, random_state=1)
-        total_sample_size = X.shape[0]
-        total_sim_mat_train, labeled_vec = get_sim_mats(Y_annotated, annot_train_inds, total_sample_size)
+            annot_train_inds, annot_test_inds = train_test_split(np.arange(0, Y_annotated.shape[0]), test_size=0.2, random_state=1)
+            print('Annot train inds')
+            print(annot_train_inds.shape)
+            print('Annot test inds')
+            print(annot_test_inds.shape)
+            aligned_annot_test_inds = nonzero_annot_row_inds[annot_test_inds]
+            not_test_inds = [i for i in np.arange(0, Y_aligned.shape[0]) if i not in annot_test_inds]
 
-        X_total = np.concatenate((X_annotated, X_unannotated, X_unaligned), axis=0)
-        assert total_sample_size == X_total.shape[0]
+            X_big_aligned_not_test = X_aligned[not_test_inds] # the actual proteins whose similarities we can calculate and use for training
+            X_big_aligned_test = X_aligned[aligned_annot_test_inds]
 
-        '''
-        print('Is anything labeled after Y_annotated.shape[0] entries in the labeled_vec?')
-        print(np.sum(labeled_vec[Y_annotated.shape[0]:, :]))
-        print('X total shape:')
-        print(X_total.shape)
-        print('Labeled vec shape:')
-        print(labeled_vec.shape)
-        print('label vec sum:')
-        print(np.sum(labeled_vec))
-        print('total sim mat train shape')
-        print(total_sim_mat_train.shape)
-        '''
-        
-        input_dims = [X_total.shape[1]]
-        #input_dims = [X.shape[1]]
-        encode_dims = [1000]
+            total_sample_size = X.shape[0]
+            #total_sim_mat_train, labeled_vec = get_sim_mats(Y_annotated, annot_train_inds, total_sample_size)
+            total_sim_mat_train, labeled_vec = get_sim_mats(Y_big_aligned, not_test_inds, total_sample_size)
+            
+            #X_total = np.concatenate((X_annotated, X_unannotated, X_unaligned), axis=0)
+            X_total = np.concatenate((X_big_aligned_not_test, X_big_aligned_test, X_unaligned), axis=0)
+            print('X_big_aligned_not_test')
+            print(X_big_aligned_not_test.shape)
+            print('X_big_aligned_test')
+            print(X_big_aligned_test.shape)
+            print('X_big_unannotated')
+            print(X_big_unannotated.shape)
+            print('X_total shape')
+            print(X_total.shape)
+            print('total sample size')
+            print(total_sample_size)
+            assert total_sample_size == X_total.shape[0]
 
-        autoencoder_train_inds, autoencoder_test_inds = train_test_split(np.arange(0, X_total.shape[0]), test_size=0.2)
-        train_sim_mat_auto_train = total_sim_mat_train[autoencoder_train_inds, :]
-        train_sim_mat_auto_train = train_sim_mat_auto_train[:, autoencoder_train_inds]
-        train_sim_mat_auto_test = np.zeros((autoencoder_test_inds.shape[0], autoencoder_test_inds.shape[0]), dtype=np.float32)
-        labeled_vec_test = np.zeros((autoencoder_test_inds.shape[0], 1)) # this should make sim val loss always 0
-        labeled_vec_train = labeled_vec[autoencoder_train_inds, :]
-        print('Total number of labeled proteins in the autoencoder training set:')
-        print(np.sum(labeled_vec_train))
-        print('Total number of autoencoder training proteins:')
-        print(labeled_vec_train.shape[0])
+            '''
+            print('Is anything labeled after Y_annotated.shape[0] entries in the labeled_vec?')
+            print(np.sum(labeled_vec[Y_annotated.shape[0]:, :]))
+            print('X total shape:')
+            print(X_total.shape)
+            print('Labeled vec shape:')
+            print(labeled_vec.shape)
+            print('label vec sum:')
+            print(np.sum(labeled_vec))
+            print('total sim mat train shape')
+            print(total_sim_mat_train.shape)
+            '''
+            
+            input_dims = [X_total.shape[1]]
+            #input_dims = [X.shape[1]]
+            encode_dims = [1000]
 
-        model, history = build_sim_reg_model(X_total, input_dims, encode_dims, autoencoder_train_inds, autoencoder_test_inds, train_sim_mat_auto_train, train_sim_mat_auto_test, labeled_vec_train, labeled_vec_test)
-        export_history(history, model_name=model_name, kwrd='sim_reg_AE')
-        #model, history = build_model(X_total, input_dims, encode_dims, mtype='ae', epochs=NB_EPOCH, batch_size=BATCH_SIZE)
+            autoencoder_train_inds, autoencoder_test_inds = train_test_split(np.arange(0, X_total.shape[0]), test_size=0.2)
+            train_sim_mat_auto_train = total_sim_mat_train[autoencoder_train_inds, :]
+            train_sim_mat_auto_train = train_sim_mat_auto_train[:, autoencoder_train_inds]
+            train_sim_mat_auto_test = np.zeros((autoencoder_test_inds.shape[0], autoencoder_test_inds.shape[0]), dtype=np.float32)
+            labeled_vec_test = np.zeros((autoencoder_test_inds.shape[0], 1)) # this should make sim val loss always 0
+            labeled_vec_train = labeled_vec[autoencoder_train_inds, :]
+            print('Total number of labeled proteins in the autoencoder training set:')
+            print(np.sum(labeled_vec_train))
+            print('Total number of autoencoder training proteins:')
+            print(labeled_vec_train.shape[0])
+            
+            curr_model_name = model_name + '_sim_reg_lamb_' + str(sim_reg_lamb)
+            model, history = build_sim_reg_model(X_total, input_dims, encode_dims, autoencoder_train_inds, autoencoder_test_inds, train_sim_mat_auto_train, train_sim_mat_auto_test, labeled_vec_train, labeled_vec_test, sim_reg_lamb=sim_reg_lamb)
+            export_history(history, model_name=curr_model_name, kwrd='sim_reg_AE')
+            #model, history = build_model(X_total, input_dims, encode_dims, mtype='ae', epochs=NB_EPOCH, batch_size=BATCH_SIZE)
 
-        mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
-        ae_features_annotated = minmax_scale(mid_model.predict(X_annotated))
-        print('Features and Y shape for validation:')
-        print(ae_features_annotated.shape)
+            mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
+            ae_features_annotated = minmax_scale(mid_model.predict(X_annotated))
+            print('Features and Y shape for validation:')
+            print(ae_features_annotated.shape)
 
-        # okay, finally, now i can use a train-test version of the cross_validation svm script
+            # okay, finally, now i can use a train-test version of the cross_validation svm script
 
-        perf, y_scores = train_test(ae_features_annotated, Y_annotated, annot_train_inds, annot_test_inds, ker='rbf')
-        y_score_trials[:, trial] = y_scores
-        trial_perfs['pr_micro'].append(perf['pr_micro'])
-        trial_perfs['pr_macro'].append(perf['pr_macro'])
-        trial_perfs['F1'].append(perf['F1'])
-        trial_perfs['acc'].append(perf['acc'])
+            perf, y_scores = train_test(ae_features_annotated, Y_annotated, annot_train_inds, annot_test_inds, ker='rbf')
+            y_score_trials[:, trial] = y_scores
+            trial_perfs['pr_micro'].append(perf['pr_micro'])
+            trial_perfs['pr_macro'].append(perf['pr_macro'])
+            trial_perfs['F1'].append(perf['F1'])
+            trial_perfs['acc'].append(perf['acc'])
 
-        print('aupr[micro], aupr[macro], F_1, accuracy\n')
-        avg_micro = 0.0
-        print('%0.5f %0.5f %0.5f %0.5f' % (perf['pr_micro'], perf['pr_macro'], perf['F1'], perf['acc']))
-    print
-    avg_micro = sum(trial_perfs['pr_micro'])/float(len(trial_perfs['pr_micro']))
-    print ("### Average (over trials): m-AUPR = %0.3f" % (avg_micro))
-    val_type = 'svm'
-    pickle.dump(y_score_trials, open(RESULTS_PATH + model_name + "_goterm_" + ont + '_' + val_type + "_perf.pckl", "wb"))
+            print('aupr[micro], aupr[macro], F_1, accuracy\n')
+            avg_micro = 0.0
+            print('%0.5f %0.5f %0.5f %0.5f' % (perf['pr_micro'], perf['pr_macro'], perf['F1'], perf['acc']))
+        print
+        avg_micro = sum(trial_perfs['pr_micro'])/float(len(trial_perfs['pr_micro']))
+        print ("### Average (over trials): m-AUPR = %0.3f" % (avg_micro))
+        val_type = 'svm'
+        pickle.dump(y_score_trials, open(RESULTS_PATH + curr_model_name + "_goterm_" + ont + '_' + val_type + "_perf.pckl", "wb"))
 
 
 if __name__ == "__main__":
     annot_fname = str(sys.argv[1])
     ont = str(sys.argv[2])
-    model_name = str(sys.argv[3]) + '_' + str(SIM_REG_LAMB)
+    model_name = str(sys.argv[3])
     print('model name: ' + model_name)
     network_folder = str(sys.argv[4])
     if network_folder[-1] != '/':

@@ -62,7 +62,7 @@ def sigmoid_sim_loss_subsample(S, F):
     return tf.divide(grand_sum, tf.reduce_sum(tf.cast(total_mask, tf.float32))) # divide by the number of chosen interactions
 
 
-def build_sim_reg_AE(input_dim, encoding_dims, sim_reg_lamb, hidden_activation='tanh'):
+def build_sim_reg_AE(input_dim, encoding_dims, sim_reg_lamb, hidden_activation='tanh', lr=0.01):
     """
     Function for building autoencoder.
     """
@@ -87,7 +87,7 @@ def build_sim_reg_AE(input_dim, encoding_dims, sim_reg_lamb, hidden_activation='
 
     output_layers = [mid_layer, decoded]
     # autoencoder model
-    sgd = SGD(lr=0.01, momentum=0.9, decay=0.0, nesterov=False)
+    sgd = SGD(lr=lr, momentum=0.9, decay=0.0, nesterov=False)
     model = Model(inputs=input_layer, outputs=output_layers)
 
     losses = [sigmoid_sim_loss_label_mask, 'binary_crossentropy']
