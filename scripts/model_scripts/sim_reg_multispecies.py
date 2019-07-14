@@ -215,8 +215,10 @@ def get_sim_mats(Y_annotated, train_inds, total_sample_size):
     y_train_with_zero_rows = np.zeros_like(Y_annotated)
     y_train_with_zero_rows[train_inds, :] = np.copy(Y_annotated[train_inds, :])
 
-    print('COSINE SIMS -- NON BINARY')
-    train_sim_mat = np.array(cosine_similarity(y_train_with_zero_rows), dtype=np.float32)
+    print('If two labeled proteins have at least one considered annotation in common, they are considered similar. If not, they are different.')
+    train_sim_mat = np.array(cosine_similarity(y_train_with_zero_rows) > 0, dtype=np.float32)
+    #print('COSINE SIMS -- NON BINARY')
+    #train_sim_mat = np.array(cosine_similarity(y_train_with_zero_rows), dtype=np.float32)
     #print('JACCARD SIMS -- NON BINARY')
     #jaccard_distance = pairwise_distances(y_train_with_zero_rows, metric='jaccard')
     #train_sim_mat = 1 - jaccard_distance
@@ -370,6 +372,10 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
         train_sim_mat_auto_test = np.zeros((autoencoder_test_inds.shape[0], autoencoder_test_inds.shape[0]), dtype=np.float32)
         labeled_vec_test = np.zeros((autoencoder_test_inds.shape[0], 1)) # this should make sim val loss always 0
         labeled_vec_train = labeled_vec[autoencoder_train_inds, :]
+        print('Total number of labeled proteins in the autoencoder training set:')
+        print(np.sum(labeled_vec_train))
+        print('Total number of autoencoder training proteins:')
+        print(labeled_vec_train.shape[0])
 
         model, history = build_sim_reg_model(X_total, input_dims, encode_dims, autoencoder_train_inds, autoencoder_test_inds, train_sim_mat_auto_train, train_sim_mat_auto_test, labeled_vec_train, labeled_vec_test)
         export_history(history, model_name=model_name, kwrd='sim_reg_AE')
