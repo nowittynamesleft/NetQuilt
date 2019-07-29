@@ -6,7 +6,7 @@ import os.path
 from scipy import stats
 
 from deepNF import build_MDA, build_AE
-from validation import cross_validation, cross_validation_nn
+from validation import cross_validation, cross_validation_nn, temporal_holdout
 from keras.models import Model
 from keras.layers import Input, Dense
 from keras.optimizers import SGD
@@ -19,10 +19,12 @@ from sklearn.utils import resample
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 BATCH_SIZE = 128
-NB_EPOCH = 100
+#NB_EPOCH = 100
+NB_EPOCH = 1
 LR = 0.01
 RESULTS_PATH = '../results/test/'
 
@@ -31,6 +33,9 @@ RESULTS_PATH = '../results/test/'
 
 #For running autoencoder on model orgs and testing on human (with alpha=0.6):
 #python multispecies.py /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606_string.04_2015_annotations.pckl molecular_function model_orgs_human_test /mnt/ceph/users/vgligorijevic/PFL/data/string/ 511145,7227,10090,6239,4932,9606 0.6 /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606-model-org_molecular_function_train_goids.pckl
+
+# For temporal holdout:
+# example for running autoencoder on human and testing on human on the goids chosen from model-org go ids: python multispecies.py ../../data/temporal_holdout/long_time_test_human_MFannotation_data.pkl molecular_function human_only_temporal_holdout_impl_test /mnt/ceph/users/vgligorijevic/PFL/data/string/ 9606 1.0 
 
 def aupr(label, score):
     """Computing real AUPR"""
@@ -189,21 +194,164 @@ def train_NN_model(X, Y, encoding_dims, epochs=NB_EPOCH, batch_size=BATCH_SIZE):
     return model, history
 
 
-if __name__ == "__main__":
-    annot_fname = str(sys.argv[1])
-    ont = str(sys.argv[2])
-    model_name = str(sys.argv[3])
-    network_folder = str(sys.argv[4])
-    if network_folder[-1] != '/':
-        network_folder += '/'
+def get_mapping_dict(mapping_fname): 
+    mapping_df = pd.read_csv(mapping_fname, sep='\t', names=['UniprotKB_AC', 'ID_type', 'ID'])
+    mapping_df = mapping_df[mapping_df.ID_type == 'STRING']
+    mapping_dict = pd.Series(mapping_df.ID.values, index=mapping_df.UniprotKB_AC).to_dict()
+    return mapping_dict
 
-    tax_ids = str(sys.argv[5])
-    alpha = str(sys.argv[6])
-    test_goid_fname = str(sys.argv[7])
 
-    # tax ids
-    tax_ids = tax_ids.split(',')
+def uniprot_to_string_mapping(uniprot_prots, mapping_dict):
+    string_ids = []
+    missing_inds = []
+    for i, prot in enumerate(uniprot_prots):
+        if prot in mapping_dict:
+            string_ids.append(mapping_dict[prot])
+        else:
+            missing_inds.append(i)
+    missing_inds = np.array(missing_inds)
+    return string_ids, missing_inds 
 
+
+def remove_missing_annot_prots(annot_prots, Y, mapping_dict):
+    new_annot_prots, missing_inds = uniprot_to_string_mapping(annot_prots, mapping_dict)
+    Y = np.delete(Y, missing_inds, axis=0)
+    return new_annot_prots, Y
+
+
+def temporal_holdout_main(annot_fname, model_name, network_folder, tax_ids, alpha, mapping_fname):
+    #  Load annotations
+
+    Annot = pickle.load(open(annot_fname, 'rb'))
+    # selected goids
+    test_funcs = Annot['func_inds']
+    train_inds = Annot['train_prot_inds']
+    valid_inds = Annot['valid_prot_inds']
+    test_inds = Annot['test_prot_inds']
+    Y_train = np.asarray(Annot['train_annots'])[:, test_funcs]
+    Y_valid = np.asarray(Annot['valid_annots'])[:, test_funcs]
+    Y_test = np.asarray(Annot['test_annots'])[:, test_funcs]
+
+    mapping_dict = get_mapping_dict(mapping_fname)
+    print('Y_train before: ', Y_train.shape)
+    annot_prots_train = Annot['prot_IDs'][train_inds]
+    annot_prots_train, Y_train = remove_missing_annot_prots(annot_prots_train, Y_train, mapping_dict)
+    print('Y_train after: ', Y_train.shape)
+
+    print('Y_valid before: ', Y_valid.shape)
+    annot_prots_valid = Annot['prot_IDs'][valid_inds]
+    annot_prots_valid, Y_valid = remove_missing_annot_prots(annot_prots_valid, Y_valid, mapping_dict)
+    print('Y_valid after: ', Y_valid.shape)
+
+    print('Y_test before: ', Y_test.shape)
+    annot_prots_test = Annot['prot_IDs'][test_inds]
+    annot_prots_test, Y_test = remove_missing_annot_prots(annot_prots_test, Y_test, mapping_dict)
+    print('Y_test after: ', Y_test.shape)
+    goterms = Annot['GO_IDs'][test_funcs]
+
+    use_orig_feats = False
+    if use_orig_feats:
+        # creating a block matrix
+        print ("### Creating the block matrix...")
+        string_prots = []
+        X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
+        for ii in range(0, len(tax_ids)):
+            Net = pickle.load(open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+            X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
+            string_prots += Net['prot_IDs']
+            for jj in range(ii + 1, len(tax_ids)):
+                R = pickle.load(open(network_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
+                R = minmax_scale(np.asarray(R.todense()))
+                X[ii][jj] = R
+                X[jj][ii] = R.T
+        X = np.asarray(np.bmat(X))
+        print ("### Shape of the block matrix: ", X.shape)
+        X = minmax_scale(X)
+
+    else:
+        #  Load networks/features
+        feature_fname = RESULTS_PATH + model_name.split('-')[0] + '_features.pckl'
+        if os.path.isfile(feature_fname):
+            print('### Found features in ' + feature_fname + ' Loading it.')
+            String = pickle.load(open(feature_fname, 'rb'))
+            string_prots = String['prot_IDs']
+            X = String['features']
+        else:
+            '''
+            The following code assumes these things:
+                - You have the random walk with restart profiles of the string networks already in a pickle file
+                - You have the isorank 'block' matrix (rectangle matrix for interspecies connections) (pretty sure 'block' is a misnomer)
+            '''
+            # creating a block matrix
+            print ("### Creating the block matrix...")
+            string_prots = []
+            X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
+            for ii in range(0, len(tax_ids)):
+                Net = pickle.load(open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+                X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
+                string_prots += Net['prot_IDs']
+                for jj in range(ii + 1, len(tax_ids)):
+                    R = pickle.load(open(network_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
+                    R = minmax_scale(np.asarray(R.todense()))
+                    X[ii][jj] = R
+                    X[jj][ii] = R.T
+            X = np.asarray(np.bmat(X))
+            print ("### Shape of the block matrix: ", X.shape)
+
+            # X = minmax_scale(String['net'].todense())
+            # string_prots = String['prot_IDs']
+
+            '''
+            Builds and trains the autoencoder and scales the features.
+            '''
+            input_dims = [X.shape[1]]
+            # encode_dims = [2000, 1000, 2000]
+            encode_dims = [1000]
+            model, history = build_model(X, input_dims, encode_dims, mtype='ae')
+            export_history(history, model_name=model_name, kwrd='AE')
+
+            mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
+
+            X = minmax_scale(mid_model.predict(X))
+            String = {}
+            String['features'] = X
+            String['prot_IDs'] = string_prots
+            pickle.dump(String, open(feature_fname, 'wb'))
+
+    # get common indices annotations
+    annot_idx_train, string_idx_train = get_common_indices(annot_prots_train, string_prots)
+    annot_idx_valid, string_idx_valid = get_common_indices(annot_prots_valid, string_prots)
+    annot_idx_test, string_idx_test = get_common_indices(annot_prots_test, string_prots)
+
+    # aligned data
+    X_train = X[string_idx_train]
+    Y_train = Y_train[annot_idx_train]
+
+    X_valid = X[string_idx_valid]
+    Y_valid = Y_valid[annot_idx_valid]
+
+    X_test = X[string_idx_test]
+    Y_test = Y_test[annot_idx_test]
+    
+    perf, y_scores = temporal_holdout(X_train, Y_train, X_valid, Y_valid, X_test, Y_test)
+
+    print('aupr[micro], aupr[macro], F_max, accuracy\n')
+    avg_micro = 0.0
+    for ii in range(0, len(perf['F1'])):
+        print('%0.5f %0.5f %0.5f %0.5f' % (perf['pr_micro'][ii], perf['pr_macro'][ii], perf['F1'][ii], perf['acc'][ii]))
+        avg_micro += perf['pr_micro'][ii]
+    avg_micro /= len(perf['F1'])
+    print ("### Average (over trials): m-AUPR = %0.3f" % (avg_micro))
+    print
+    use_nn = False
+    if use_nn:
+        val_type = 'nn_th'
+    else:
+        val_type = 'svm_th'
+    pickle.dump(y_score_trials, open(RESULTS_PATH + model_name + "_goterm_" + val_type + "_perf.pckl", "wb"))
+
+
+def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid_fname):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
@@ -348,3 +496,26 @@ if __name__ == "__main__":
     #pickle.dump(Pred, open(RESULTS_PATH + model_name + '_' + pred_taxon + '_' + ont + '_' + val_type + "_preds.pckl", "wb"))
 
 
+if __name__ == "__main__":
+    annot_fname = str(sys.argv[1])
+    ont = str(sys.argv[2])
+    model_name = str(sys.argv[3])
+    network_folder = str(sys.argv[4])
+    if network_folder[-1] != '/':
+        network_folder += '/'
+
+    tax_ids = str(sys.argv[5])
+    alpha = str(sys.argv[6])
+    val = 'th'
+    #val = 'cv'
+
+    # tax ids
+    tax_ids = tax_ids.split(',')
+    if val == 'cv':
+        test_goid_fname = str(sys.argv[7])
+        main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid_fname)
+    elif val == 'th':
+        uniprot_mapping_fname = str(sys.argv[7])
+        temporal_holdout_main(annot_fname, model_name, network_folder, tax_ids, alpha, uniprot_mapping_fname)
+    else:
+        print('Wrong validation setting. Must either be th or cv.')

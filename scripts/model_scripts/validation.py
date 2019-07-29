@@ -602,6 +602,130 @@ def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
     return history, model 
 
 
+def temporal_holdout(X_train, y_train, X_valid, y_valid, X_test, y_test, ker='rbf'):
+    y_scores = np.zeros((y_train.shape[1]), dtype=np.float)
+    print('Y_train before')
+    print(y_train.shape)
+    print('Y_valid before')
+    print(y_valid.shape)
+    print('Y_test before')
+    print(y_test.shape)
+    print('X_train before')
+    print(X_train.shape)
+    print('X_valid before')
+    print(X_valid.shape)
+    print('X_test before')
+    print(X_test.shape)
+
+    print('This should do nothing:')
+    del_rid = np.where(y_train.sum(axis=1) == 0)[0]
+    y_train = np.delete(y_train, del_rid, axis=0)
+    X_train = np.delete(X_train, del_rid, axis=0)
+
+    del_rid = np.where(y_valid.sum(axis=1) == 0)[0]
+    y_valid = np.delete(y_valid, del_rid, axis=0)
+    X_valid = np.delete(X_valid, del_rid, axis=0)
+
+    del_rid = np.where(y_test.sum(axis=1) == 0)[0]
+    y_test = np.delete(y_test, del_rid, axis=0)
+    X_test = np.delete(X_test, del_rid, axis=0)
+    print('Y_train after')
+    print(y_train.shape)
+    print('Y_valid after')
+    print(y_valid.shape)
+    print('Y_test after')
+    print(y_test.shape)
+    print('X_train after')
+    print(X_train.shape)
+    print('X_valid after')
+    print(X_valid.shape)
+    print('X_test after')
+    print(X_test.shape)
+
+    # now I have a training and testing X and y with no zero rows.
+    # Make kernels for X_train and X_test
+    # range of hyperparameters
+    C_range = 10.**np.arange(-1, 3)
+    if ker == 'rbf':
+        gamma_range = 10.**np.arange(-3, 1)
+    elif ker == 'lin':
+        gamma_range = [0]
+    else:
+        print ("### Wrong kernel.")
+
+    # pre-generating kernels
+    print ("### Pregenerating kernels...")
+    K_rbf_train = {}
+    K_rbf_valid = {}
+    K_rbf_test = {}
+    for gamma in gamma_range:
+        K_rbf_train[gamma] = kernel_func(X_train, param=gamma) # K_rbf_train has the same indices as y_train and X_train
+        K_rbf_valid[gamma] = kernel_func(X_valid, X_train, param=gamma) # K_rbf_test has the same indices as y_test and X_test on axis 0 and X_train on axis 1
+        K_rbf_test[gamma] = kernel_func(X_test, X_train, param=gamma) # K_rbf_test has the same indices as y_test and X_test on axis 0 and X_train on axis 1
+    print ("### Done.")
+
+    # performance measures
+    pr_micro = []
+    pr_macro = []
+    F1 = []
+    acc = []
+
+    print ("Train samples=%d; Valid samples=%d, #Test samples=%d" % (y_train.shape[0], y_valid.shape[0], y_test.shape[0]))
+
+    # parameter fitting
+    C_opt = None
+    gamma_opt = None
+    max_aupr = 0
+    for C in C_range:
+        for gamma in gamma_range:
+            # Multi-label classification
+            cv_results = []
+            clf = OneVsRestClassifier(svm.SVC(C=C, kernel='precomputed',
+                                              random_state=123,
+                                              probability=True), n_jobs=-1)
+            y_score_valid = np.zeros(y_valid.shape, dtype=float)
+            y_pred_valid = np.zeros_like(y_valid)
+            print(y_train.shape)
+            print(K_rbf_train[gamma].shape)
+            clf.fit(K_rbf_train[gamma], y_train)
+            y_score_valid = clf.predict_proba(K_rbf_valid[gamma])
+            y_pred_valid = clf.predict(K_rbf_valid[gamma])
+            perf_th_val = evaluate_performance(y_valid,
+                                           y_score_valid,
+                                           y_pred_valid)
+            curr_micro = perf_th_val['pr_micro']
+            print ("### gamma = %0.3f, C = %0.3f, AUPR = %0.3f" % (gamma, C, cv_aupr))
+            if curr_micro > max_aupr:
+                C_opt = C
+                gamma_opt = gamma
+                max_aupr = curr_micro
+    print ("### Optimal parameters: ")
+    print ("C_opt = %0.3f, gamma_opt = %0.3f" % (C_opt, gamma_opt))
+    print ("### Train dataset: AUPR = %0.3f" % (max_aupr))
+    print
+    print ("### Using full training data...")
+    clf = OneVsRestClassifier(svm.SVC(C=C_opt, kernel='precomputed',
+                                      random_state=123,
+                                      probability=True), n_jobs=-1)
+    y_score = np.zeros(y_test.shape, dtype=float)
+    y_pred = np.zeros_like(y_test)
+    K_full_train = np.concatenate([K_rbf_train[gamma_opt], K_rbf_valid[gamma_opt]], axis=0)
+    y_full_train = np.concatenate([y_train, y_valid], axis=0)
+    clf.fit(K_full_train, y_full_train)
+
+    # Compute performance on test set
+    y_score = clf.predict_proba(K_rbf_test[gamma_opt])
+    y_pred = clf.predict(K_rbf_test[gamma_opt])
+    perf = evaluate_performance(y_test, y_score, y_pred)
+    for go_id in range(0, y_pred.shape[1]):
+        y_scores[go_id] = perf[go_id]
+    print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf['pr_micro'], perf['pr_macro'], perf['F1'], perf['acc']))
+    print
+    print
+
+    return perf, y_scores
+    
+
 def cross_validation_nn(X, y, n_trials=5, X_pred=None):
     """Perform model selection via 5-fold cross validation"""
     NUM_EPOCHS = 150
