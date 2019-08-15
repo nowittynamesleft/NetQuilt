@@ -506,8 +506,8 @@ if __name__ == "__main__":
 
     tax_ids = str(sys.argv[5])
     alpha = str(sys.argv[6])
-    val = 'th'
-    #val = 'cv'
+    #val = 'th'
+    val = 'cv'
 
     # tax ids
     tax_ids = tax_ids.split(',')
