@@ -1,3 +1,5 @@
+import matplotlib as mpl
+mpl.use('Agg')
 import sys
 import pickle
 import numpy as np
@@ -6,7 +8,7 @@ import os.path
 from scipy import stats
 
 from deepNF import build_MDA, build_AE
-from validation import cross_validation, cross_validation_nn, temporal_holdout
+from validation import cross_validation, cross_validation_nn, temporal_holdout, output_projection_files
 from keras.models import Model
 from keras.layers import Input, Dense
 from keras.optimizers import SGD
@@ -16,17 +18,15 @@ from sklearn.preprocessing import minmax_scale
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 
-import matplotlib as mpl
-mpl.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 
 
 BATCH_SIZE = 128
-#NB_EPOCH = 100
-NB_EPOCH = 1
+NB_EPOCH = 100
+#NB_EPOCH = 1
 LR = 0.01
-RESULTS_PATH = '../results/test/'
+RESULTS_PATH = '../results/alpha_testing/'
 
 # python multispecies.py annot_fname ont model_name network_folder tax_ids alpha test_go_id_fname
 # example for running autoencoder on human and testing on human on the goids chosen from model-org go ids: python multispecies.py /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606_string.04_2015_annotations.pckl molecular_function human_only /mnt/ceph/users/vgligorijevic/PFL/data/string/ 9606 1.0 /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606-model-org_molecular_function_train_goids.pckl
@@ -365,11 +365,13 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
         string_prots = []
         X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
         for ii in range(0, len(tax_ids)):
-            Net = pickle.load(open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+            #Net = pickle.load(open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+            Net = pickle.load(open(network_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
             X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
             string_prots += Net['prot_IDs']
             for jj in range(ii + 1, len(tax_ids)):
-                R = pickle.load(open(network_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
+                #R = pickle.load(open(network_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
+                R = pickle.load(open(network_folder + 'block_matrix_files/' + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
                 R = minmax_scale(np.asarray(R.todense()))
                 X[ii][jj] = R
                 X[jj][ii] = R.T
@@ -396,11 +398,12 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
             string_prots = []
             X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
             for ii in range(0, len(tax_ids)):
-                Net = pickle.load(open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+                Net = pickle.load(open(network_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
                 X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
                 string_prots += Net['prot_IDs']
                 for jj in range(ii + 1, len(tax_ids)):
-                    R = pickle.load(open(network_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
+                    print('Loading ' + network_folder + 'block_matrix_files/' + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
+                    R = pickle.load(open(network_folder + 'block_matrix_files/' + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
                     R = minmax_scale(np.asarray(R.todense()))
                     X[ii][jj] = R
                     X[jj][ii] = R.T
@@ -465,6 +468,7 @@ def main(annot_fname, ont, model_name, network_folder, tax_ids, alpha, test_goid
     Y = Y[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
+    output_projection_files(X, Y, model_name, ont, list(test_goids))
 
     #use_nn = True
     use_nn = False
@@ -506,6 +510,7 @@ if __name__ == "__main__":
 
     tax_ids = str(sys.argv[5])
     alpha = str(sys.argv[6])
+    model_name = model_name + '_alpha_' + str(alpha)
     #val = 'th'
     val = 'cv'
 

@@ -4,7 +4,7 @@ import pickle
 import csv
 import obonet
 import sys
-
+from pathlib import Path
 
 def save_annots(tax_ids):
     # read *.obo file
@@ -48,6 +48,13 @@ def save_annots(tax_ids):
     jj['cellular_component'] = 0
 
     lines = []
+    annot_folder = './string_annot/'
+    go_path = annot_folder + 'all_go_knowledge_full.tsv'
+    if not Path(go_path):
+        print(go_path + ' not found. Downloading and gunzipping it.')
+        subprocess.run(['wget', '-P', annot_folder, 'https://version-10-5.string-db.org/mapping_files/gene_ontology_mappings/all_go_knowledge_full.tsv.gz'])
+        subprocess.run(['gunzip', '-f', go_path + '.gz'])
+
     with open('string_annot/all_go_knowledge_full.tsv') as tsvfile:
         reader = csv.reader(tsvfile, delimiter='\t')
         for row in reader:
@@ -77,6 +84,7 @@ def save_annots(tax_ids):
     Annot['annot']['molecular_function'] = sparse.lil_matrix((ii, jj['molecular_function']))
     Annot['annot']['biological_process'] = sparse.lil_matrix((ii, jj['biological_process']))
     Annot['annot']['cellular_component'] = sparse.lil_matrix((ii, jj['cellular_component']))
+        
 
     for entry in lines:
         namespace = entry[0]
@@ -90,6 +98,22 @@ def save_annots(tax_ids):
     # pickle.dump(Annot, open('553174_string.04_2015_annotations.pckl', 'wb'))
     name_prefix = '-'.join(tax_ids)
     pickle.dump(Annot, open('./string_annot/' + name_prefix + '_string.04_2015_annotations.pckl', 'wb'))
+    min_coverage = 0.01
+    max_coverage = 0.05
+    for ont in ['molecular_function', 'biological_process', 'cellular_component']:
+        num_prots = Annot['annot'][ont].shape[0]
+        go_term_coverages = np.sum(Annot['annot'][ont], axis=0)/num_prots
+        terms_are_covered = np.logical_and((go_term_coverages > min_coverage), (go_term_coverages < max_coverage))
+        chosen_go_inds = np.where(terms_are_covered)[1]
+        chosen_go_IDs = np.array(Annot['go_IDs'][ont])[chosen_go_inds] 
+        print(chosen_go_IDs)
+        print(len(chosen_go_IDs))
+        pickle.dump(chosen_go_IDs, open('./string_annot/' + name_prefix + '_' + ont + '_train_goids.pckl', 'wb'))
+        chosen_go_names = np.array(Annot['go_names'][ont])[chosen_go_inds] 
+        with open('./string_annot/' + name_prefix + '_' + ont + '_train_gonames.txt', 'w') as f:
+            for i, go_name in enumerate(chosen_go_names):
+                f.write("%s\t%s\n" % (chosen_go_IDs[i], go_name))
+    
 
 if __name__ == '__main__':
     tax_ids = sys.argv[1].split(',')

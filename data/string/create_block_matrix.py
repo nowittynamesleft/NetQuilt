@@ -1,5 +1,7 @@
 from isorank import RWR, IsoRank
 from scipy import sparse
+from get_fastas_and_blasts import interspecies_blast
+from string2adj import save_networks
 import numpy as np
 import pickle
 import sys
@@ -43,7 +45,12 @@ def load_blastp(fname, prot2index_1, prot2index_2):
 def save_rwr_matrices(tax_ids, network_folder='./network_files/'):
     for ii in range(0, len(tax_ids)):
         net = {}
-        prot2index, A, net_prots = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
+        try:
+            prot2index, A, net_prots = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
+        except FileNotFoundError:
+            print('Network file for ' + str(tax_ids[ii]) + ' not found. Downloading it and then computing rwr.')
+            save_networks([tax_ids[ii]]) # save network that is not found
+            prot2index, A, net_prots = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
         net['net'] = RWR(A, maxiter=4)
         net['prot_IDs'] = net_prots
         pickle.dump(net, open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "wb"))
@@ -54,7 +61,12 @@ def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast
         prot2index_1, A_1, _ = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
         for jj in range(ii+1, len(tax_ids)):
             prot2index_2, A_2, _ = load_adj(network_folder + tax_ids[jj] + "_networks_string.v10.5.pckl")
-            R = load_blastp(blast_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_blastp.tab", prot2index_1, prot2index_2)
+            try:
+                R = load_blastp(blast_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_blastp.tab", prot2index_1, prot2index_2)
+            except FileNotFoundError:
+                print('Blast file for ' + str(tax_ids[ii]) + "-" + tax_ids[jj] + ' not found. Blasting them and then computing block matrix with isorank.')
+                interspecies_blast([tax_ids[ii], tax_ids[jj]])
+                R = load_blastp(blast_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_blastp.tab", prot2index_1, prot2index_2)
             # ***adding this normalization:
             R /= R.sum()
             R = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=4)

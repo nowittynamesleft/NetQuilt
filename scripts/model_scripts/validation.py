@@ -390,17 +390,23 @@ def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
     acc = []
 
     # shuffle and split training and test sets
+    '''
     trials = ShuffleSplit(n_splits=n_trials, test_size=0.2, random_state=None)
     ss = trials.split(X)
     trial_splits = []
     for train_idx, test_idx in ss:
         trial_splits.append((train_idx, test_idx))
+    '''
+    k_fold = KFold(n_splits=n_trials)
+    k_fold.split(X, y=y)
 
     y_score_trials = np.zeros((y.shape[1], n_trials), dtype=np.float)
     it = 0
-    for jj in range(0, n_trials):
+    for train_idx, test_idx in k_fold.split(X, y=y):
+        '''
         train_idx = trial_splits[jj][0]
         test_idx = trial_splits[jj][1]
+        '''
         it += 1
         y_train = y[train_idx]
         y_test = y[test_idx]
@@ -463,7 +469,7 @@ def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
         y_pred = clf.predict(K_rbf[gamma_opt][test_idx, :][:, train_idx])
         perf_trial = evaluate_performance(y_test, y_score, y_pred)
         for go_id in range(0, y_pred.shape[1]):
-            y_score_trials[go_id, jj] = perf_trial[go_id]
+            y_score_trials[go_id, it-1] = perf_trial[go_id]
         pr_micro.append(perf_trial['pr_micro'])
         pr_macro.append(perf_trial['pr_macro'])
         F1.append(perf_trial['F1'])
@@ -724,6 +730,11 @@ def temporal_holdout(X_train, y_train, X_valid, y_valid, X_test, y_test, ker='rb
     print
 
     return perf, y_scores
+
+
+def output_projection_files(X, y, model_name, ont, label_names):
+    np.savetxt(model_name + '_' + ont + '_projection_features.tsv', X, delimiter='\t')
+    np.savetxt(model_name + '_' + ont + '_projection_labels.tsv', y, delimiter='\t', header='\t'.join(label_names))
     
 
 def cross_validation_nn(X, y, n_trials=5, X_pred=None):

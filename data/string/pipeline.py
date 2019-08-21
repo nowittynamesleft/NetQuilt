@@ -8,12 +8,10 @@ tax_ids = sys.argv[1].split(',')
 alpha = float(sys.argv[2])
 
 # annotations
-
-save_networks(tax_ids)
-fasta_fnames = get_fastas(tax_ids)
-interspecies_blast(fasta_fnames)
-print('DONE WITH BLASTING')
 save_annots(tax_ids)
+#save_networks(tax_ids)
+#fasta_fnames = get_fastas(tax_ids)
+#interspecies_blast(tax_ids)
 save_rwr_matrices(tax_ids)
 save_block_matrices(alpha, tax_ids)
-
+print('Done.')

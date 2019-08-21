@@ -35,7 +35,7 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3):
         A2_is_pos = np.sum(A2 < 0) == 0
         print(A1_is_pos)
         print(A2_is_pos)
-        print('Adjacency matrices not all greater than 0. Exiting.') 
+        print('Adjacency matrices not all nonneggative. Exiting.') 
         exit()
     n1 = A1.shape[0]
     n2 = A2.shape[0]
@@ -62,11 +62,11 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3):
     for ii in range(0, maxiter):
         R /= R.sum()
         try:
-            assert alpha > 0 and 1 - alpha > 0
+            assert alpha >= 0 and 1 - alpha >= 0
         except AssertionError:
-            print(alpha > 0)
-            print(1 - alpha > 0)
-            print('Alpha is not greater than 0, or 1 - alpha is not greater than 0. Exiting.')
+            print(alpha >= 0)
+            print(1 - alpha >= 0)
+            print('Alpha  or 1 - alpha is negative. Exiting.')
             exit()
         R = alpha*A1.transpose().dot(R.dot(A2)) + (1.0 - alpha)*R_12
         S += R
