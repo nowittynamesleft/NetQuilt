@@ -3,6 +3,7 @@ from scipy import sparse
 
 
 def RWR(A, alpha=0.95, maxiter=3):
+    print('RWR')
     n = A.shape[0]
     with np.errstate(divide='ignore'):
         d = 1.0/A.sum(axis=1)
@@ -25,7 +26,8 @@ def RWR(A, alpha=0.95, maxiter=3):
     return S
 
 
-def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3):
+def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False):
+    print('Iso rank')
     try:
         A1_is_pos = np.sum(A1 < 0) == 0
         A2_is_pos = np.sum(A2 < 0) == 0
@@ -57,7 +59,13 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3):
 
     # IsoRank algorithm
     # R = R_12
-    R = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
+    #R = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
+    if rand_init:
+        R = sparse.lil_matrix(np.random.rand(n1, n2), dtype=np.float)
+    elif ones_init:
+        R = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
+    else:
+        R = R_12
     S = R
     for ii in range(0, maxiter):
         R /= R.sum()

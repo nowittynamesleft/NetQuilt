@@ -10,7 +10,8 @@ from keras.layers import Input, Dense, maximum, BatchNormalization, Dropout
 from keras.optimizers import SGD, Adagrad
 from keras.callbacks import EarlyStopping
 import talos as ta
-from talos.metrics.keras_metrics import fmeasure_acc
+#from talos.metrics.keras_metrics import fmeasure_acc
+from talos.metrics.keras_metrics import f1score
 from talos.utils.gpu_utils import multi_gpu
 import matplotlib.pyplot as plt
 
@@ -92,6 +93,142 @@ def evaluate_performance(y_test, y_score, y_pred):
     perf["F1"] = f1_score(y_test, y_new_pred, average='micro')
 
     return perf
+
+
+def remove_zero_annot_rows(X, y):
+    del_rid = np.where(y.sum(axis=1) == 0)[0]
+    y_new = np.delete(y, del_rid, axis=0)
+    X_new = np.delete(X, del_rid, axis=0)
+    return X_new, y_new
+
+
+def leave_one_species_out_val(X, y, spec_inds, test_species, ker='rbf'):
+    print('Commencing leave one species out validation for test_species ' + str(test_species))
+    # spec_inds is a dictionary with keys = species taxa ids : values = species indices in 
+    # the X matrix and y matrix
+    assert X.shape[0] > 0 and y.shape[0] > 0
+
+    train_species = [species for species in spec_inds.keys() if species != test_species]
+    print('train species:')
+    print(train_species)
+    test_inds = spec_inds[test_species]
+    print(test_inds)
+
+
+    #X_train = np.delete(X, test_inds, axis=0) # cross-val on these to choose hyperparams
+    #y_train = np.delete(y, test_inds, axis=0)
+    X_train = X
+    y_train = y
+    X_test = X[test_inds]
+    y_test = y[test_inds]
+    print('X_train shape')
+    print(X_train.shape)
+    print('y_train shape')
+    print(y_train.shape)
+
+    # delete 0 rows
+    X_train, y_train = remove_zero_annot_rows(X_train, y_train)
+    X_test, y_test = remove_zero_annot_rows(X_test, y_test)
+    print('X_train shape')
+    print(X_train.shape)
+    print('y_train shape')
+    print(y_train.shape)
+
+    # range of hyperparameters
+    C_range = 10.**np.arange(-1, 3)
+    if ker == 'rbf':
+        gamma_range = 10.**np.arange(-3, 1)
+    elif ker == 'lin':
+        gamma_range = [0]
+    else:
+        print ("### Wrong kernel.")
+
+    # pre-generating kernels
+    print ("### Pregenerating kernels...")
+    K_rbf_train = {}
+    K_rbf_test = {}
+    for gamma in gamma_range:
+        K_rbf_train[gamma] = kernel_func(X_train, param=gamma)
+        K_rbf_test[gamma] = kernel_func(X_test, X_train, param=gamma)
+    print ("### Done.")
+    print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
+
+    # performance measures
+    pr_micro = []
+    pr_macro = []
+    F1 = []
+    acc = []
+
+    y_score_trials = np.zeros((y.shape[1], 1), dtype=np.float)
+    it = 0
+    # parameter fitting
+    C_opt = None
+    gamma_opt = None
+    max_aupr = 0
+    splits = ml_split(y_train)
+    for C in C_range:
+        for gamma in gamma_range:
+            # Multi-label classification
+            cv_results = []
+            for train, valid in splits:
+                clf = OneVsRestClassifier(svm.SVC(C=C, kernel='precomputed',
+                                                  random_state=123,
+                                                  probability=True), n_jobs=-1)
+                K_train = K_rbf_train[gamma][train, :][:, train]
+                K_valid = K_rbf_train[gamma][valid, :][:, train]
+                y_train_t = y_train[train]
+                y_train_v = y_train[valid]
+                y_score_valid = np.zeros(y_train_v.shape, dtype=float)
+                y_pred_valid = np.zeros_like(y_train_v)
+                idx = np.where(y_train_t.sum(axis=0) > 0)[0]
+                clf.fit(K_train, y_train_t[:, idx])
+                y_score_valid[:, idx] = clf.predict_proba(K_valid)
+                y_pred_valid[:, idx] = clf.predict(K_valid)
+                perf_cv = evaluate_performance(y_train_v,
+                                               y_score_valid,
+                                               y_pred_valid)
+                cv_results.append(perf_cv['pr_micro'])
+            cv_aupr = np.median(cv_results)
+            print ("### gamma = %0.3f, C = %0.3f, AUPR = %0.3f" % (gamma, C, cv_aupr))
+            if cv_aupr > max_aupr:
+                C_opt = C
+                gamma_opt = gamma
+                max_aupr = cv_aupr
+    print ("### Optimal parameters: ")
+    print ("C_opt = %0.3f, gamma_opt = %0.3f" % (C_opt, gamma_opt))
+    print ("### Train dataset: AUPR = %0.3f" % (max_aupr))
+    print
+    print ("### Using full training data...")
+    clf = OneVsRestClassifier(svm.SVC(C=C_opt, kernel='precomputed',
+                                      random_state=123,
+                                      probability=True), n_jobs=-1)
+    y_score = np.zeros(y_test.shape, dtype=float)
+    y_pred = np.zeros_like(y_test)
+    # idx = np.where(y_train.sum(axis=0) > 0)[0]
+    clf.fit(K_rbf_train[gamma_opt], y_train)
+
+    # Compute performance on test set
+    y_score = clf.predict_proba(K_rbf_test[gamma_opt])
+    y_pred = clf.predict(K_rbf_test[gamma_opt])
+    perf_trial = evaluate_performance(y_test, y_score, y_pred)
+    for go_id in range(0, y_pred.shape[1]):
+        y_score_trials[go_id, 0] = perf_trial[go_id]
+        print(perf_trial[go_id])
+    pr_micro.append(perf_trial['pr_micro'])
+    pr_macro.append(perf_trial['pr_macro'])
+    F1.append(perf_trial['F1'])
+    acc.append(perf_trial['acc'])
+    print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
+    print
+    print
+
+    perf = dict()
+    perf['pr_micro'] = pr_micro
+    perf['pr_macro'] = pr_macro
+    perf['F1'] = F1
+    perf['acc'] = acc
+
+    return perf, y_score_trials
 
 
 def temporal_holdout(X, y, indx, goterms, bootstraps=None, ker='rbf'):
@@ -219,13 +356,8 @@ def train_test(X, y, train_idx, test_idx, ker='rbf'):
     print(X_test.shape)
 
     print('This should do nothing:')
-    del_rid = np.where(y_train.sum(axis=1) == 0)[0]
-    y_train = np.delete(y_train, del_rid, axis=0)
-    X_train = np.delete(X_train, del_rid, axis=0)
-
-    del_rid = np.where(y_test.sum(axis=1) == 0)[0]
-    y_test = np.delete(y_test, del_rid, axis=0)
-    X_test = np.delete(X_test, del_rid, axis=0)
+    X_train, y_train = remove_zero_annot_rows(X_train, y_train)
+    X_test, y_test = remove_zero_annot_rows(X_test, y_test)
     print('Y_train after')
     print(y_train.shape)
     print('Y_test after')
@@ -351,9 +483,7 @@ def train_test(X, y, train_idx, test_idx, ker='rbf'):
 def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
-    del_rid = np.where(y.sum(axis=1) == 0)[0]
-    y = np.delete(y, del_rid, axis=0)
-    X = np.delete(X, del_rid, axis=0)
+    X, y = remove_zero_annot_rows(X, y)
     print('X and y shape:')
     print(X)
     print(y)
@@ -538,7 +668,7 @@ def build_maxout_nn_classifier(input_dim, output_dim, maxout_units): # this is a
     output_layer = Dense(output_dim, activation='sigmoid')(dropout_3)
     
     model = Model(inputs=input_layer, outputs=output_layer)
-    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[fmeasure_acc])
+    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1_score])
     model.summary()
     return model
 
@@ -593,7 +723,7 @@ def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
     
     model = Model(inputs=input_layer, outputs=output_layer)
     optim = Adagrad(lr=params['learning_rate'])
-    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[fmeasure_acc])
+    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1score])
     model.summary()
     
     history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['num_epochs']), verbose=0)
@@ -610,43 +740,11 @@ def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
 
 def temporal_holdout(X_train, y_train, X_valid, y_valid, X_test, y_test, ker='rbf'):
     y_scores = np.zeros((y_train.shape[1]), dtype=np.float)
-    print('Y_train before')
-    print(y_train.shape)
-    print('Y_valid before')
-    print(y_valid.shape)
-    print('Y_test before')
-    print(y_test.shape)
-    print('X_train before')
-    print(X_train.shape)
-    print('X_valid before')
-    print(X_valid.shape)
-    print('X_test before')
-    print(X_test.shape)
 
     print('This should do nothing:')
-    del_rid = np.where(y_train.sum(axis=1) == 0)[0]
-    y_train = np.delete(y_train, del_rid, axis=0)
-    X_train = np.delete(X_train, del_rid, axis=0)
-
-    del_rid = np.where(y_valid.sum(axis=1) == 0)[0]
-    y_valid = np.delete(y_valid, del_rid, axis=0)
-    X_valid = np.delete(X_valid, del_rid, axis=0)
-
-    del_rid = np.where(y_test.sum(axis=1) == 0)[0]
-    y_test = np.delete(y_test, del_rid, axis=0)
-    X_test = np.delete(X_test, del_rid, axis=0)
-    print('Y_train after')
-    print(y_train.shape)
-    print('Y_valid after')
-    print(y_valid.shape)
-    print('Y_test after')
-    print(y_test.shape)
-    print('X_train after')
-    print(X_train.shape)
-    print('X_valid after')
-    print(X_valid.shape)
-    print('X_test after')
-    print(X_test.shape)
+    X_train, y_train = remove_zero_annot_rows(X_train, y_train)
+    X_valid, y_valid = remove_zero_annot_rows(X_valid, y_valid)
+    X_test, y_test = remove_zero_annot_rows(X_test, y_test)
 
     # now I have a training and testing X and y with no zero rows.
     # Make kernels for X_train and X_test
@@ -741,9 +839,7 @@ def cross_validation_nn(X, y, n_trials=5, X_pred=None):
     """Perform model selection via 5-fold cross validation"""
     NUM_EPOCHS = 150
     # filter samples with no annotations
-    del_rid = np.where(y.sum(axis=1) == 0)[0]
-    y = np.delete(y, del_rid, axis=0)
-    X = np.delete(X, del_rid, axis=0)
+    X, y = remove_zero_annot_rows(X, y)
     hidden_dims = [3]
 
     if X_pred is not None:

@@ -56,7 +56,7 @@ def save_rwr_matrices(tax_ids, network_folder='./network_files/'):
         pickle.dump(net, open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "wb"))
         print ('\n')
 
-def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast_folder='./blast_files/', block_matrix_folder='./block_matrix_files/'):
+def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast_folder='./blast_files/', block_matrix_folder='./block_matrix_files/', rand_init=False):
     for ii in range(0, len(tax_ids)):
         prot2index_1, A_1, _ = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
         for jj in range(ii+1, len(tax_ids)):
@@ -69,8 +69,8 @@ def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast
                 R = load_blastp(blast_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_blastp.tab", prot2index_1, prot2index_2)
             # ***adding this normalization:
             R /= R.sum()
-            R = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=4)
-                
+            R = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=4, rand_init=rand_init)
+            print('Dumping to ' + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
             pickle.dump(R, open(block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "wb"))
 
 
