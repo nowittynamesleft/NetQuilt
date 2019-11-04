@@ -47,7 +47,7 @@ def build_denoising_AE(input_dim, encoding_dims, hidden_activation='sigmoid'):
     print('Activation:')
     print(hidden_activation)
     input_layer = Input(shape=(input_dim, ))
-    x = GaussianNoise(1.0)(input_layer)
+    x = GaussianNoise(0.5)(input_layer)
     hidden_layer = Lambda(lambda a: tf.clip_by_value(a, 0, 1))(x)
     for i in range(0, len(encoding_dims)):
         # generate hidden layer

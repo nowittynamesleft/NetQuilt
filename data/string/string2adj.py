@@ -63,11 +63,12 @@ def save_networks(tax_ids, network_folder='./network_files/'):
     for tax in tax_ids:
         print (tax)
         fname = tax + '.protein.links.detailed.v10.5.txt.gz'
-        subprocess.run(['wget', 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
-        subprocess.run(['mv', fname, network_folder])
-        subprocess.run(['gunzip', '-f', network_folder + fname])
-        fname = fname[:-3]
-        String = load_string_nets(network_folder + fname)
+        try:
+            String = load_string_nets(network_folder + fname[:-3])
+        except FileNotFoundError:
+            subprocess.run(['wget', '-P', network_folder, 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
+            subprocess.run(['gunzip', '-f', network_folder + fname])
+        String = load_string_nets(network_folder + fname[:-3])
         pickle.dump(String, open(network_folder + tax + "_networks_string.v10.5.pckl", "wb"))
         #String = pickle.load(open("./prevotella_melaninogenica/" + tax + "_networks_string.v10.5.pckl", "rb"))
         #net = String['nets']['experimental'].todense()

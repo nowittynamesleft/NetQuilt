@@ -8,8 +8,7 @@ def get_fastas(taxa, fasta_folder='./fasta_files/'):
     fnames = []
     for taxon in taxa:
         fname = str(taxon) + '.protein.sequences.v10.5.fa.gz'
-        subprocess.run(['wget', 'https://version-10-5.string-db.org/download/protein.sequences.v10.5/' + fname])
-        subprocess.run(['mv', fname, fasta_folder])
+        subprocess.run(['wget', '-P', fasta_folder, 'https://version-10-5.string-db.org/download/protein.sequences.v10.5/' + fname])
         subprocess.run(['gunzip', '-f', fasta_folder + fname])
         fname = fname[:-3]
         subprocess.run(['makeblastdb', '-in', fasta_folder + fname, '-dbtype', 'prot'])

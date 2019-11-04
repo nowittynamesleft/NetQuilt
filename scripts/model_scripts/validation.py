@@ -485,8 +485,8 @@ def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
     # filter samples with no annotations
     X, y = remove_zero_annot_rows(X, y)
     print('X and y shape:')
-    print(X)
-    print(y)
+    print(X.shape)
+    print(y.shape)
     print('Num nonzeros in y matrix:')
     print(np.count_nonzero(y))
 

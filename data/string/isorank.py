@@ -2,8 +2,12 @@ import numpy as np
 from scipy import sparse
 
 
-def RWR(A, alpha=0.95, maxiter=3):
+def RWR(A, alpha=0.95, maxiter=3, add=True):
     print('RWR')
+    if add:
+        print('Adding P to S every iteration')
+    else:
+        print('S will be P at iteration ' + str(maxiter))
     n = A.shape[0]
     with np.errstate(divide='ignore'):
         d = 1.0/A.sum(axis=1)
@@ -20,14 +24,17 @@ def RWR(A, alpha=0.95, maxiter=3):
     S = sparse.lil_matrix(np.zeros((n, n)), dtype=np.float)
     for ii in range(0, maxiter):
         P = alpha*A.dot(P) + (1.0 - alpha)*I
-        S += P
+        if add:
+            S += P
+        else:
+            S = P
         print ("### iteration %d" % (ii))
 
     return S
 
 
-def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False):
-    print('Iso rank')
+def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False, add=True):
+    print('ISORANK')
     try:
         A1_is_pos = np.sum(A1 < 0) == 0
         A2_is_pos = np.sum(A2 < 0) == 0
@@ -77,7 +84,12 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False
             print('Alpha  or 1 - alpha is negative. Exiting.')
             exit()
         R = alpha*A1.transpose().dot(R.dot(A2)) + (1.0 - alpha)*R_12
-        S += R
+        if add:
+            print('Adding to S instead of taking the last iteration')
+            S += R
+        else:
+            print('S is last iteration of algorithm, not sum of all iterations')
+            S = R
         print ("### iteration %d" % (ii))
         try:
             R_is_pos = np.sum(R < 0) == 0
