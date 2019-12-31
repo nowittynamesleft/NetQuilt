@@ -21,13 +21,13 @@ from sklearn.utils import resample
 import matplotlib.pyplot as plt
 import pandas as pd
 
+import argparse
+
 
 BATCH_SIZE = 128
 NB_EPOCH = 100
 #NB_EPOCH = 1
 LR = 0.01
-RESULTS_PATH = '../results/loso_testing/'
-#RESULTS_PATH = '../results/alpha_testing/'
 
 # python multispecies.py annot_fname ont model_name data_folder tax_ids alpha test_go_id_fname
 # example for running autoencoder on human and testing on human on the goids chosen from model-org go ids: python multispecies.py /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606_string.04_2015_annotations.pckl molecular_function human_only /mnt/ceph/users/vgligorijevic/PFL/data/string/ 9606 1.0 /mnt/ceph/users/vgligorijevic/PFL/data/annot/string_annot/9606-model-org_molecular_function_train_goids.pckl
@@ -88,7 +88,7 @@ def macro_aupr(y_test, y_score, goterms=None, out_fname=None):
     return perf
 
 
-def export_history(history, model_name, kwrd, results_path=RESULTS_PATH):
+def export_history(history, model_name, kwrd, results_path=None):
     # Export figure: loss vs epochs (history)
     plt.figure()
     plt.plot(history.history['loss'], '-')
@@ -223,7 +223,7 @@ def remove_missing_annot_prots(annot_prots, Y, mapping_dict):
     return new_annot_prots, Y
 
 
-def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, mapping_fname):
+def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, mapping_fname, results_path='./results/test_results/'):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     # selected goids
@@ -273,7 +273,7 @@ def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, 
 
     else:
         #  Load networks/features
-        feature_fname = RESULTS_PATH + model_name.split('-')[0] + '_features.pckl'
+        feature_fname = results_path + model_name.split('-')[0] + '_features.pckl'
         if os.path.isfile(feature_fname):
             print('### Found features in ' + feature_fname + ' Loading it.')
             String = pickle.load(open(feature_fname, 'rb'))
@@ -302,7 +302,7 @@ def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, 
             print ("### Shape of the block matrix: ", X.shape)
 
             # X = minmax_scale(String['net'].todense())
-            # string_prots = String['prot_IDs']
+            # string_prots = String['prot_IDs'
 
             '''
             Builds and trains the autoencoder and scales the features.
@@ -311,7 +311,7 @@ def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, 
             # encode_dims = [2000, 1000, 2000]
             encode_dims = [1000]
             model, history = build_model(X, input_dims, encode_dims, mtype='ae')
-            export_history(history, model_name=model_name, kwrd='AE')
+            export_history(history, model_name=model_name, kwrd='AE', results_path=results_path)
 
             mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
 
@@ -351,10 +351,10 @@ def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, 
         val_type = 'nn_th'
     else:
         val_type = 'svm_th'
-    pickle.dump(y_score_trials, open(RESULTS_PATH + model_name + "_goterm_" + val_type + "_perf.pckl", "wb"))
+    pickle.dump(y_score_trials, open(results_path + model_name + "_goterm_" + val_type + "_perf.pckl", "wb"))
 
 
-def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, alpha, test_goid_fname, block_matrix_folder='block_matrix_files/', network_folder='network_files/'):
+def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, alpha, test_goid_fname, results_path='./results/test_results/', block_matrix_folder='block_matrix_files/', network_folder='network_files/'):
     # need to make: dictionary of species taxa ids to species inds in the X matrix
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
@@ -369,7 +369,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
 
     else:
         #  Load networks/features
-        feature_fname = RESULTS_PATH + model_name.split('-')[0] + '_features.pckl'
+        feature_fname = results_path + model_name.split('-')[0] + '_features.pckl'
         if os.path.isfile(feature_fname):
             print('### Found features in ' + feature_fname + ' Loading it.')
             String = pickle.load(open(feature_fname, 'rb'))
@@ -392,7 +392,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
             # encode_dims = [2000, 1000, 2000]
             encode_dims = [1000]
             model, history = build_model(X, input_dims, encode_dims, mtype='ae')
-            export_history(history, model_name=model_name, kwrd='AE')
+            export_history(history, model_name=model_name, kwrd='AE', results_path=results_path)
 
             mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
 
@@ -404,7 +404,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
             pickle.dump(String, open(feature_fname, 'wb'))
 
     # Load features
-    # String_ecoli = pickle.load(open(RESULTS_PATH + 'string_dmelanogaster_features.pckl', 'rb'))
+    # String_ecoli = pickle.load(open(results_path + 'string_dmelanogaster_features.pckl', 'rb'))
     # string_prots_ecoli = String_ecoli['prot_IDs']
     # ecoli_idx, model_org_idx = get_common_indices(string_prots_ecoli, string_prots)
     # string_prots = [string_prots[ii] for ii in model_org_idx]
@@ -498,8 +498,8 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
         val_type = 'nn'
     else:
         val_type = 'svm'
-    pickle.dump(y_score_trials, open(RESULTS_PATH + model_name + "_goterm_" + ont + '_' + val_type + "_loso_perf.pckl", "wb"))
-    #pickle.dump(Pred, open(RESULTS_PATH + model_name + '_' + pred_taxon + '_' + ont + '_' + val_type + "_preds.pckl", "wb"))
+    pickle.dump(y_score_trials, open(results_path + model_name + "_goterm_" + ont + '_' + val_type + "_loso_perf.pckl", "wb"))
+    #pickle.dump(Pred, open(results_path + model_name + '_' + pred_taxon + '_' + ont + '_' + val_type + "_preds.pckl", "wb"))
 
 
 def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder):
@@ -533,15 +533,13 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder):
     return X, string_prots, species_string_prots
 
 
-def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_files/', network_folder='network_files/'):
+def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
     annot_prots = Annot['prot_IDs']
     goterms = Annot['go_IDs'][ont]
 
-    #use_orig_feats = True
-    use_orig_feats = False
     if use_orig_feats:
         '''
         # creating a block matrix
@@ -567,11 +565,12 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
         X = minmax_scale(X)
         print(X)
         '''
+        print('Using orig features')
         X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder)
 
     else:
         #  Load networks/features
-        feature_fname = RESULTS_PATH + model_name.split('-')[0] + '_features.pckl'
+        feature_fname = results_path + model_name.split('-')[0] + '_features.pckl'
         if os.path.isfile(feature_fname):
             print('### Found features in ' + feature_fname + ' Loading it.')
             String = pickle.load(open(feature_fname, 'rb'))
@@ -641,7 +640,7 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
             # encode_dims = [2000, 1000, 2000]
             encode_dims = [1000]
             model, history = build_model(X, input_dims, encode_dims, mtype='ae')
-            export_history(history, model_name=model_name, kwrd='AE')
+            export_history(history, model_name=model_name, kwrd='AE', results_path=results_path)
 
             mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
 
@@ -653,7 +652,7 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
             pickle.dump(String, open(feature_fname, 'wb'))
 
     # Load features
-    # String_ecoli = pickle.load(open(RESULTS_PATH + 'string_dmelanogaster_features.pckl', 'rb'))
+    # String_ecoli = pickle.load(open(results_path + 'string_dmelanogaster_features.pckl', 'rb'))
     # string_prots_ecoli = String_ecoli['prot_IDs']
     # ecoli_idx, model_org_idx = get_common_indices(string_prots_ecoli, string_prots)
     # string_prots = [string_prots[ii] for ii in model_org_idx]
@@ -682,6 +681,8 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     X = X[string_idx]
     Y = Y[annot_idx]
 
+    validation_net_prots = np.array(string_prots)[string_idx]
+
     # selected goids
     test_goids = pickle.load(open(test_goid_fname, 'rb'))
     test_funcs = [goterms.index(goid) for goid in test_goids]
@@ -692,11 +693,10 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     print(np.count_nonzero(Y))
     output_projection_files(X, Y, model_name, ont, list(test_goids))
 
-    #use_nn = True
-    use_nn = False
     if use_nn:
         #perf, y_score_trials, y_score_pred = cross_validation_nn(X, Y, n_trials=10, X_pred=X_pred_spec)
-        perf, y_score_trials, y_score_pred = cross_validation_nn(X, Y, n_trials=5, X_pred=None)
+        perf, y_score_trials, y_score_pred, pred_file = cross_validation_nn(X, Y, validation_net_prots, test_goids, model_name, ont, n_trials=5, X_pred=None)
+        pickle.dump(pred_file, open(results_path + model_name.split('.')[0] + '_cv_use_nn_' + ont + '_pred_file.pckl', 'wb'))
     else:
         #perf, y_score_trials, y_score_pred = cross_validation(X, Y, n_trials=10, X_pred=X_pred_spec)
         perf, y_score_trials, y_score_pred = cross_validation(X, Y, n_trials=5, X_pred=None)
@@ -718,57 +718,65 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
         val_type = 'nn'
     else:
         val_type = 'svm'
-    pickle.dump(y_score_trials, open(RESULTS_PATH + model_name + "_goterm_" + ont + '_' + val_type + "_perf.pckl", "wb"))
-    #pickle.dump(Pred, open(RESULTS_PATH + model_name + '_' + pred_taxon + '_' + ont + '_' + val_type + "_preds.pckl", "wb"))
+    pickle.dump(y_score_trials, open(results_path + model_name + "_goterm_" + ont + '_' + val_type + "_perf.pckl", "wb"))
+    #pickle.dump(Pred, open(results_path + model_name + '_' + pred_taxon + '_' + ont + '_' + val_type + "_preds.pckl", "wb"))
 
 
 if __name__ == "__main__":
-    annot_fname = str(sys.argv[1])
-    ont = str(sys.argv[2])
-    model_name = str(sys.argv[3])
-    data_folder = str(sys.argv[4])
+    parser = argparse.ArgumentParser(description='DMSNE for protein function prediction')
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--tax_ids', type=str, help="Taxonomy ids of organisms used to train DMSNE, comma separated (i.e., 511145,316407,316385,224308,71421,243273 for model bacteria)")
+    parser.add_argument('--valid_type', type=str, default='cv', help="Validation. Possible: {'cv', 'loso'}.")
+    parser.add_argument('--model_name', type=str, default='final_res', help="Output filename keywords.")
+    parser.add_argument('--results_path', type=str, default='./results/test_results', help="Saving results.")
+    parser.add_argument('--data_folder', type=str, help="Data folder.")
+    parser.add_argument('--alpha', type=float, help="Propagation parameter.")
+
+    # added
+    parser.add_argument('--annot', type=str, help="Annotation Filename.")
+    parser.add_argument('--ont', type=str, default='molecular_function', help="GO term branch.")
+    parser.add_argument('--test_goid_fname', type=str, default=None, help="Pickle file containing a list of GO terms to test on. (CV and LOSO valid types only)")
+    parser.add_argument('--test_tax_id', type=str, default=None, help="Taxonomy ID to test on. LOSO valid type only.")
+    parser.add_argument('--use_orig_features', help="Use ISORANK S matrix as features for func pred instead of autoencoder features", action='store_true')
+    parser.add_argument('--use_nn_val', help="Use neural net instead of svm for func pred validation", action='store_true')
+    args = parser.parse_args() 
+
+    results_path = args.results_path
+
+    annot_fname = args.annot
+    ont = args.ont
+    model_name = args.model_name
+    data_folder = args.data_folder
     if data_folder[-1] != '/':
         data_folder += '/'
 
-    tax_ids = str(sys.argv[5])
-    alpha = str(sys.argv[6])
+    tax_ids = args.tax_ids
+    alpha = args.alpha
     model_name = model_name + '_alpha_' + str(alpha)
-    #val = 'th'
-    val = 'cv'
-    #val = 'loso'
+    val = args.valid_type
 
     # tax ids
     tax_ids = tax_ids.split(',')
+    test_goid_fname = args.test_goid_fname
+    test_tax_id = args.test_tax_id
+    use_orig_features = args.use_orig_features
+    use_nn = args.use_nn_val
+
     if val == 'cv':
-        test_goid_fname = str(sys.argv[7])
-        print('annot_fname')
-        print(annot_fname)
-        print('ontology')
-        print(ont)
-        print('model_name')
-        print(model_name)
-        print('data_folder')
-        print(data_folder)
-        print('tax_ids')
-        print(tax_ids)
-        print('alpha')
-        print(alpha)
-        print('test_goid_fname')
-        print(test_goid_fname)
-        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files/')
+        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files/', use_orig_feats=use_orig_features, use_nn=use_nn)
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_blast_init_test_files/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files_no_add/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_2/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_files/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname)
+    elif val == 'loso':
+        print('Leave one species out...')
+        args = [annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_goid_fname, alpha]
+        leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, alpha, test_goid_fname, results_path=results_path, block_matrix_folder='block_matrix_rand_init_test_files/', network_folder='network_files/')
+    else:
+        print('Wrong validation setting. Must either be cv or loso.')
+    '''
     elif val == 'th':
         uniprot_mapping_fname = str(sys.argv[7])
         temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, uniprot_mapping_fname)
-    elif val == 'loso':
-        print('Leave one species out...')
-        test_goid_fname = str(sys.argv[7])
-        test_tax_id = str(sys.argv[8])
-        args = [annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_goid_fname, alpha]
-        leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files/', network_folder='network_files/')
-    else:
-        print('Wrong validation setting. Must either be th or cv or loso. Set variable \'val\' inside multispecies.py')
+    '''

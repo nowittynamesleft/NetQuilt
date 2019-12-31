@@ -15,6 +15,9 @@ from talos.metrics.keras_metrics import f1score
 from talos.utils.gpu_utils import multi_gpu
 import matplotlib.pyplot as plt
 
+import datetime
+import os
+
 
 def kernel_func(X, Y=None, param=0):
     if param != 0:
@@ -528,11 +531,11 @@ def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
         trial_splits.append((train_idx, test_idx))
     '''
     k_fold = KFold(n_splits=n_trials)
-    k_fold.split(X, y=y)
+    trial_splits = k_fold.split(X, y=y)
 
     y_score_trials = np.zeros((y.shape[1], n_trials), dtype=np.float)
     it = 0
-    for train_idx, test_idx in k_fold.split(X, y=y):
+    for train_idx, test_idx in trial_splits:
         '''
         train_idx = trial_splits[jj][0]
         test_idx = trial_splits[jj][1]
@@ -673,6 +676,14 @@ def build_maxout_nn_classifier(input_dim, output_dim, maxout_units): # this is a
     return model
 
 
+def create_param_dict_string(params):
+    dict_string = params['exp_name'] + '_maxout_' + str(params['maxout_units']) + '_arch_'
+    for i in range(1,5):
+        dict_string += str(params['hidden_dim_' + str(i)]) + '_'
+    dict_string += 'act_' + params['activation'] + '_lr_' + str(params['learning_rate']) + '_num_epoch_' + str(params['num_epochs']) + '_batch_size_' + str(params['batch_size'])
+    return dict_string
+   
+
 def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
     input_layer = Input(shape=(X_train.shape[1],))
     '''
@@ -733,7 +744,11 @@ def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.legend(['Train', 'Test'], loc='upper left')
-    plt.savefig('classifier_loss_plots/' + str(params['exp_name']) + '.png')
+    param_dict_string = create_param_dict_string(params)
+    loss_string = param_dict_string + '_loss.png'
+    print('Saving ' + loss_string)
+    plt.savefig(loss_string)
+    plt.close()
     
     return history, model 
 
@@ -831,15 +846,15 @@ def temporal_holdout(X_train, y_train, X_valid, y_valid, X_test, y_test, ker='rb
 
 
 def output_projection_files(X, y, model_name, ont, label_names):
-    np.savetxt(model_name + '_' + ont + '_projection_features.tsv', X, delimiter='\t')
-    np.savetxt(model_name + '_' + ont + '_projection_labels.tsv', y, delimiter='\t', header='\t'.join(label_names))
+    np.savetxt('./features_and_labels/' + model_name + '_' + ont + '_projection_features.tsv', X, delimiter='\t')
+    np.savetxt('./features_and_labels/' + model_name + '_' + ont + '_projection_labels.tsv', y, delimiter='\t', header='\t'.join(label_names))
     
 
-def cross_validation_nn(X, y, n_trials=5, X_pred=None):
+def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None):
     """Perform model selection via 5-fold cross validation"""
-    NUM_EPOCHS = 150
     # filter samples with no annotations
-    X, y = remove_zero_annot_rows(X, y)
+    X, _ = remove_zero_annot_rows(X, y)
+    protein_names, y = remove_zero_annot_rows(np.array(protein_names), y)
     hidden_dims = [3]
 
     if X_pred is not None:
@@ -860,6 +875,12 @@ def cross_validation_nn(X, y, n_trials=5, X_pred=None):
 
     y_score_trials = np.zeros((y.shape[1], n_trials), dtype=np.float)
     it = 0
+    pred_file = {'prot_IDs': protein_names,
+                 'GO_IDs': go_terms,
+                 'trial_preds': np.zeros((n_trials, len(protein_names), len(go_terms))),
+                 'trial_splits': trial_splits,
+                 'true_labels': y
+                 }
     for jj in range(0, n_trials):
         train_idx = trial_splits[jj][0]
         test_idx = trial_splits[jj][1]
@@ -870,52 +891,9 @@ def cross_validation_nn(X, y, n_trials=5, X_pred=None):
         y_test = y[test_idx]
         print ("### [Trial %d] Perfom cross validation...." % (it))
         print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
-        '''
-        # setup for nested cross-validation
-        splits = ml_split(y_train)
-
-        # parameter fitting
-        max_aupr = -1
-        for hidden_dim in hidden_dims:
-            cv_results = []
-            for train, valid in splits:
-                # Define current nested split training/validation data
-                X_train_t = X_train[train]
-                X_train_v = X_train[valid]
-
-                y_train_t = y_train[train]
-                y_train_v = y_train[valid]
-                y_score_valid = np.zeros(y_train_v.shape, dtype=float)
-                y_pred_valid = np.zeros_like(y_train_v)
-                idx = np.where(y_train_t.sum(axis=0) > 0)[0] # idx is list of go term inds for which there are any training examples
-
-
-                model = build_maxout_nn_classifier(X_train.shape[1], y_train.shape[1], hidden_dim)
-                model.fit(X_train_t, y_train_t[:, idx], epochs=NUM_EPOCHS)
-                y_score_valid[:, idx] = model.predict(X_train_v)
-                y_pred_valid[:, idx] = y_score_valid[:, idx] > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
-
-                perf_cv = evaluate_performance(y_train_v,
-                                               y_score_valid,
-                                               y_pred_valid)
-                cv_results.append(perf_cv['pr_micro'])
-            cv_aupr = np.median(cv_results)
-            print ("### hidden_dim = %d, AUPR = %0.3f" % (hidden_dim, cv_aupr))
-            if cv_aupr > max_aupr:
-                hidden_dim_opt = hidden_dim
-                max_aupr = cv_aupr 
-        print ("### Optimal parameters: ")
-        print ("hidden_dim = %d" % (hidden_dim_opt))
-        print ("### Train dataset: AUPR = %0.3f" % (max_aupr))
-        print
-        print ("### Using full training data...")
-        '''
-        #downsample_rate = 0.01
-        #exp_name = 'first_' + str(downsample_rate) + '_sampled_model_orgs_all_annots_human_goids_hyperparam_search'
-        #downsample_rate = 0.01
-        #exp_name = 'orig_features_test'
-        downsample_rate = 0.001
-        exp_name = 'orig_features_model_orgs_tiny_test'
+        downsample_rate = 0.01
+        #downsample_rate = 0.05
+        exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-' + str(jj)
         params = {'hidden_dim_1': [500, 1000],
                     'hidden_dim_2': [200, 700, 0],
                     'hidden_dim_3': [300, 800],
@@ -928,17 +906,35 @@ def cross_validation_nn(X, y, n_trials=5, X_pred=None):
                     'batch_size': [16, 32],
                     'exp_name': [exp_name]
         }
-        #exp_name = 'third_' + str(downsample_rate) + '_sampled_human_hyperparam_search'
-        exp = str(jj)
-        results = ta.Scan(X_train, y_train, model=build_and_fit_nn_classifier, params=params, val_split=0.2, print_params=True, grid_downsample=downsample_rate, dataset_name=exp_name, experiment_no=exp)
-        #report = ta.Reporting(exp_name + '_' + exp + '.csv')
+        exp_path = exp_name + '_downsample_rate_' + str(downsample_rate)
+        results = ta.Scan(X_train, y_train, model=build_and_fit_nn_classifier, params=params, val_split=0.2, print_params=True, fraction_limit=downsample_rate, experiment_name=exp_path, clear_session=True)
+        files = os.listdir(exp_path)
+        formatted_dates = []
+        for fname in files:
+            date = fname.split('.')[0]
+            date_fmted = datetime.datetime.strptime(date, '%m%d%y%H%M%S')
+            formatted_dates.append(date_fmted)
+        most_recent_exp = exp_path + '/' + max(formatted_dates).strftime('%m%d%y%H%M%S') + '.csv'
+        print(most_recent_exp)
+        report = ta.Reporting(most_recent_exp)
         print ("### Using full training data...")
-        best_p = results.data.sort_values('val_fmeasure_acc', ascending=False).to_dict('records')[0] # weirdly, there's no best parameters function in talos for the results that gets a dictionary that was the same as the input to the model
-        best_p['maxout_units'] = int(best_p['maxout_units'])
-        best_p['hidden_dim_1'] = int(best_p['hidden_dim_1'])
-        best_p['hidden_dim_2'] = int(best_p['hidden_dim_2'])
-        best_p['hidden_dim_3'] = int(best_p['hidden_dim_3'])
-        best_p['hidden_dim_4'] = int(best_p['hidden_dim_4'])
+        #best_p = results.data.sort_values('val_fmeasure_acc', ascending=False).to_dict('records')[0] # weirdly, there's no best parameters function in talos for the results that gets a dictionary that was the same as the input to the model
+        best_params = report.best_params('val_f1score', ['']).head(1) # weirdly, there's no best parameters function in talos for the results that gets a dictionary that was the same as the input to the model
+        '''
+        best_p = {}
+        best_p['maxout_units'] = int(best_params['maxout_units'])
+        best_p['hidden_dim_1'] = int(best_params['hidden_dim_1'])
+        best_p['hidden_dim_2'] = int(best_params['hidden_dim_2'])
+        best_p['hidden_dim_3'] = int(best_params['hidden_dim_3'])
+        best_p['hidden_dim_4'] = int(best_params['hidden_dim_4'])
+        best_p['dropout'] = float(best_params['dropout'])
+        best_p['num_epochs'] = int(best_params['num_epochs'])
+        best_p['learning_rate'] = int(best_params['learning_rate'])
+        best_p['activation'] = best_params['activation']
+        best_p['batch_size'] = int(best_params['batch_size'])
+        best_p['exp_name'] = best_params['exp_name']
+        '''
+        best_p = best_params.to_dict('records')[0]
         print('Best model parameters for this trial:')
         print(best_p)
         history, model = build_and_fit_nn_classifier(X[train_idx, :], y_train, X[train_idx, :], y_train, params=best_p)
@@ -950,6 +946,7 @@ def cross_validation_nn(X, y, n_trials=5, X_pred=None):
 
         # Compute performance on test set
         y_score = model.predict(X[test_idx])
+        pred_file['trial_preds'][jj, :, :] = model.predict(X)
         y_pred = y_score > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
         perf_trial = evaluate_performance(y_test, y_score, y_pred)
         for go_id in range(0, y_pred.shape[1]):
@@ -971,7 +968,8 @@ def cross_validation_nn(X, y, n_trials=5, X_pred=None):
     perf['pr_macro'] = pr_macro
     perf['F1'] = F1
     perf['acc'] = acc
-    y_score_pred /= n_trials
+    #y_score_pred /= n_trials
+    y_score_pred = None
 
-    return perf, y_score_trials, y_score_pred
+    return perf, y_score_trials, y_score_pred, pred_file
 
