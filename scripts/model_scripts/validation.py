@@ -850,7 +850,7 @@ def output_projection_files(X, y, model_name, ont, label_names):
     np.savetxt('./features_and_labels/' + model_name + '_' + ont + '_projection_labels.tsv', y, delimiter='\t', header='\t'.join(label_names))
     
 
-def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None):
+def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None, downsample_rate=0.01):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
     X, _ = remove_zero_annot_rows(X, y)
@@ -891,8 +891,9 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
         y_test = y[test_idx]
         print ("### [Trial %d] Perfom cross validation...." % (it))
         print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
-        downsample_rate = 0.01
-        #downsample_rate = 0.05
+        #downsample_rate = 0.01 # for bacteria
+        #downsample_rate = 0.001 # for eukaryotes
+
         exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-' + str(jj)
         params = {'hidden_dim_1': [500, 1000],
                     'hidden_dim_2': [200, 700, 0],

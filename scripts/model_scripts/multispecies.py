@@ -533,7 +533,7 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder):
     return X, string_prots, species_string_prots
 
 
-def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False):
+def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False, downsample_rate=None):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
@@ -695,7 +695,7 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
 
     if use_nn:
         #perf, y_score_trials, y_score_pred = cross_validation_nn(X, Y, n_trials=10, X_pred=X_pred_spec)
-        perf, y_score_trials, y_score_pred, pred_file = cross_validation_nn(X, Y, validation_net_prots, test_goids, model_name, ont, n_trials=5, X_pred=None)
+        perf, y_score_trials, y_score_pred, pred_file = cross_validation_nn(X, Y, validation_net_prots, test_goids, model_name, ont, n_trials=5, X_pred=None, downsample_rate=downsample_rate)
         pickle.dump(pred_file, open(results_path + model_name.split('.')[0] + '_cv_use_nn_' + ont + '_pred_file.pckl', 'wb'))
     else:
         #perf, y_score_trials, y_score_pred = cross_validation(X, Y, n_trials=10, X_pred=X_pred_spec)
@@ -739,10 +739,11 @@ if __name__ == "__main__":
     parser.add_argument('--test_tax_id', type=str, default=None, help="Taxonomy ID to test on. LOSO valid type only.")
     parser.add_argument('--use_orig_features', help="Use ISORANK S matrix as features for func pred instead of autoencoder features", action='store_true')
     parser.add_argument('--use_nn_val', help="Use neural net instead of svm for func pred validation", action='store_true')
+    parser.add_argument('--downsample_rate', type=float, help="For using neural networks on original features, gives a proportion of total hyperparameter sets to randomly search through.")
     args = parser.parse_args() 
 
     results_path = args.results_path
-
+    downsample_rate = args.downsample_rate
     annot_fname = args.annot
     ont = args.ont
     model_name = args.model_name
@@ -763,7 +764,7 @@ if __name__ == "__main__":
     use_nn = args.use_nn_val
 
     if val == 'cv':
-        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files/', use_orig_feats=use_orig_features, use_nn=use_nn)
+        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files/', use_orig_feats=use_orig_features, use_nn=use_nn, downsample_rate=downsample_rate)
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_blast_init_test_files/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files_no_add/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_2/')
