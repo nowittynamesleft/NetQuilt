@@ -11,3 +11,7 @@ python pipeline.py 511145,316407,316385,224308,71421,243273 0.6
 The "generate_all_alpha_preprocessing.sh" shell script just runs the pipeline script for a range of alphas (0.0 to 1.0 with increments of 0.1) for the organisms you input as the first argument, also delimited by commas, as in the following command to generate data for different alphas for the bacteria above:
 
 ./generate_all_alpha_preprocessing.sh 511145,316407,316385,224308,71421,243273
+
+To run the resulting "511145,316407,316385,224308,71421,243273_generate_all_alpha_preprocessing.sh" script, use disBatch (make sure to first "module add disBatch" on the Flatiron cluster). This is not required, you can use any distributed computation program (see https://github.com/flatironinstitute/disBatch to have an idea of what features such a program might have) to run the pipeline.
+
+sbatch -N 4 -p ccb --ntasks-per-node 3 --exclusive --wrap "disBatch.py 511145,316407,316385,224308,71421,243273_generate_all_alpha_preprocessing.sh"

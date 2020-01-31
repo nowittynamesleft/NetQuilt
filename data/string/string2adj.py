@@ -59,6 +59,16 @@ def load_string_nets(read_fname):
 
     return String
 
+
+def combine_networks_no_textmining(string_dict):
+    net_names = ['neighborhood', 'fusion', 'cooccurence', 'coexpression', 'experimental', 'database'] # no text mining or STRING "combined" networks, making combination using Von Mering, Christian, et al. "STRING: known and predicted protein–protein associations, integrated and transferred across organisms." Nucleic acids research 33.suppl_1 (2005): D433-D437.
+    product = 1 - string_dict[net_names[0]]
+    for i in range(1, len(net_names)):
+         product = np.multiply(1 - string_dict[net_names[i]], product)
+    S = 1 - product
+    return S
+
+
 def save_networks(tax_ids, network_folder='./network_files/'):
     for tax in tax_ids:
         print (tax)

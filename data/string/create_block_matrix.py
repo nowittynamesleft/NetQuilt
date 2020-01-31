@@ -42,7 +42,7 @@ def load_blastp(fname, prot2index_1, prot2index_2):
     return R_12
 
 
-def save_rwr_matrices(tax_ids, network_folder='./network_files/', add=True):
+def save_rwr_matrices(tax_ids, network_folder='./network_files/'):
     print('network_folder: ' + str(network_folder))
     for ii in range(0, len(tax_ids)):
         net = {}
@@ -53,12 +53,12 @@ def save_rwr_matrices(tax_ids, network_folder='./network_files/', add=True):
             print('Network file ' + network_file + ' not found. Downloading it and then computing rwr.')
             save_networks([tax_ids[ii]], network_folder=network_folder) # save network that is not found
             prot2index, A, net_prots = load_adj(network_file)
-        net['net'] = RWR(A, maxiter=4, add=add)
+        net['net'] = RWR(A, maxiter=1000)
         net['prot_IDs'] = net_prots
         pickle.dump(net, open(network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "wb"))
         print ('\n')
 
-def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast_folder='./blast_files/', block_matrix_folder='./block_matrix_files/', rand_init=False, ones_init=False, add=True):
+def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast_folder='./blast_files/', block_matrix_folder='./block_matrix_files/', rand_init=False, ones_init=False):
     for ii in range(0, len(tax_ids)):
         prot2index_1, A_1, _ = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
         for jj in range(ii+1, len(tax_ids)):
@@ -69,11 +69,9 @@ def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast
                 print('Blast file for ' + str(tax_ids[ii]) + "-" + tax_ids[jj] + ' not found. Blasting them and then computing block matrix with isorank.')
                 interspecies_blast([tax_ids[ii], tax_ids[jj]])
                 R = load_blastp(blast_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_blastp.tab", prot2index_1, prot2index_2)
-            # ***adding this normalization:
-            R /= R.sum()
-            R = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=4, rand_init=rand_init, ones_init=ones_init, add=add)
+            S = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=1000, rand_init=rand_init, ones_init=ones_init)
             print('Dumping to ' + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
-            pickle.dump(R, open(block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "wb"))
+            pickle.dump(S, open(block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "wb"))
 
 
 if __name__ == "__main__":

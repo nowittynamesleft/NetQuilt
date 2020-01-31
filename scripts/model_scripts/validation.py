@@ -2,7 +2,7 @@ import numpy as np
 from sklearn import svm
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.metrics import accuracy_score, f1_score
-from sklearn.model_selection import ShuffleSplit, KFold
+from sklearn.model_selection import ShuffleSplit, KFold, RandomizedSearchCV, train_test_split
 from sklearn.metrics.pairwise import rbf_kernel, linear_kernel, cosine_similarity
 from sklearn.utils import resample
 from keras.models import Model
@@ -10,14 +10,42 @@ from keras.layers import Input, Dense, maximum, BatchNormalization, Dropout
 from keras.optimizers import SGD, Adagrad
 from keras.callbacks import EarlyStopping
 import talos as ta
-#from talos.metrics.keras_metrics import fmeasure_acc
-from talos.metrics.keras_metrics import f1score
-from talos.utils.gpu_utils import multi_gpu
+from keras.wrappers.scikit_learn import KerasClassifier
 import matplotlib.pyplot as plt
+import pickle
+import tensorflow as tf
+from keras import backend as K
+from tensorflow.python.ops import math_ops
+
 
 import datetime
 import os
 
+BAC_PARAMS = {'hidden_dim_1': [500],
+                    'hidden_dim_2': [0],
+                    'hidden_dim_3': [800],
+                    'hidden_dim_4': [800],
+                    'maxout_units': [3],
+                    'dropout': [0.2],
+                    'epochs': [250],
+                    #'epochs': [1], # test
+                    'learning_rate': [0.01],
+                    'activation': ['relu'],
+                    'batch_size': [16],
+                    #'exp_name': [exp_name]
+}
+
+EUK_PARAMS = {'hidden_dim_1': [500],
+            'hidden_dim_2': [0], 
+            'hidden_dim_3': [800],
+            'hidden_dim_4': [800],
+            'maxout_units': [4], 
+            'dropout': [0.2],
+            'epochs': [300],
+            'learning_rate': [0.01],
+            'activation': ['relu'],
+            'batch_size': [32],
+}
 
 def kernel_func(X, Y=None, param=0):
     if param != 0:
@@ -26,6 +54,13 @@ def kernel_func(X, Y=None, param=0):
         K = linear_kernel(X, Y)
 
     return K
+
+
+def trapezoidal_integral_approx(t, y):
+    return math_ops.reduce_sum(
+            math_ops.multiply(t[1:] - t[:-1],
+                              (y[:-1] + y[1:]) / 2.), 
+            name='trapezoidal_integral_approx')
 
 
 def real_AUPR(label, score):
@@ -54,6 +89,31 @@ def real_AUPR(label, score):
         f = 0.0
 
     return pr, f
+
+
+def real_AUPR_tensors(label, score):
+    """Computing AUPR for use in keras metrics argument for fit function"""
+    label = tf.reshape(label, [-1])
+    score = tf.reshape(score, [-1])
+
+    order = tf.argsort(score)[::-1]
+    label = tf.gather(label, order)
+
+    P = tf.dtypes.cast(tf.count_nonzero(label), tf.float32)
+    # N = len(label) - P
+
+    TP = tf.cumsum(label)
+    PP = tf.dtypes.cast(tf.range(1, tf.shape(label)[0]+1), tf.float32)  # python
+
+    x = tf.divide(TP, P)  # recall
+    y = tf.divide(TP, PP)  # precision
+
+    pr = trapezoidal_integral_approx(x, y)
+    #f = tf.divide(2*x*y, (x + y))
+    #idx = tf.where((x + y) != 0)[0]
+    #f = tf.cond(tf.not_equal(tf.shape(idx)[0], tf.constant(0)), lambda: tf.reduce_max(tf.gather(f, idx)), lambda: tf.constant(0.0))
+
+    return pr
 
 
 def ml_split(y):
@@ -234,114 +294,102 @@ def leave_one_species_out_val(X, y, spec_inds, test_species, ker='rbf'):
     return perf, y_score_trials
 
 
-def temporal_holdout(X, y, indx, goterms, bootstraps=None, ker='rbf'):
-    """Perform temporal holdout validation"""
-    X_train = X[indx['train'].tolist()]
-    X_test = X[indx['test'].tolist()]
-    X_valid = X[indx['valid'].tolist()]
-    y_train = np.array(y['train'].tolist())
-    y_test = np.array(y['test'].tolist())
-    y_valid = np.array(y['valid'].tolist())
-    goterms = goterms['terms'].tolist()
+def leave_one_species_out_val_nn(X, y, spec_inds, test_species, go_terms, keyword, ont, arch_set=None):
+    print('Commencing leave one species out validation for test_species ' + str(test_species))
+    # spec_inds is a dictionary with keys = species taxa ids : values = species indices in 
+    # the X matrix and y matrix
+    assert X.shape[0] > 0 and y.shape[0] > 0
 
-    # range of hyperparameters
-    C_range = 10.**np.arange(-1, 3)
-    if ker == 'rbf':
-        gamma_range = 10.**np.arange(-3, 1)
-    elif ker == 'lin':
-        gamma_range = [0]
-    else:
-        print ("### Wrong kernel.")
+    train_species = [species for species in spec_inds.keys() if species != test_species]
+    print('train species:')
+    print(train_species)
+    test_inds = spec_inds[test_species]
+    print(test_inds)
 
-    # pre-generating kernels
-    print ("### Pregenerating kernels...")
-    K_rbf_train = {}
-    K_rbf_test = {}
-    K_rbf_valid = {}
-    for gamma in gamma_range:
-        K_rbf_train[gamma] = kernel_func(X_train, param=gamma)
-        K_rbf_test[gamma] = kernel_func(X_test, X_train, param=gamma)
-        K_rbf_valid[gamma] = kernel_func(X_valid, X_train, param=gamma)
-    print ("### Done.")
-    print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
+    train_inds = np.delete(np.arange(X.shape[0]), test_inds, axis=0)
+    X_train = X[train_inds, :] # cross-val on these to choose hyperparams
+    y_train = y[train_inds, :]
+    X_test = X[test_inds, :]
+    y_test = y[test_inds, :]
+    print('X_train shape')
+    print(X_train.shape)
+    print('y_train shape')
+    print(y_train.shape)
 
-    # parameter fitting
-    C_opt = None
-    gamma_opt = None
-    max_aupr = 0
-    for C in C_range:
-        for gamma in gamma_range:
-            # Multi-label classification
-            clf = OneVsRestClassifier(svm.SVC(C=C, kernel='precomputed',
-                                              random_state=123,
-                                              probability=True), n_jobs=-1)
-            clf.fit(K_rbf_train[gamma], y_train)
-            # y_score_valid = clf.decision_function(K_rbf_valid[gamma])
-            y_score_valid = clf.predict_proba(K_rbf_valid[gamma])
-            y_pred_valid = clf.predict(K_rbf_valid[gamma])
-            perf = evaluate_performance(y_valid,
-                                        y_score_valid,
-                                        y_pred_valid)
-            micro_aupr = perf['pr_micro']
-            print ("### gamma = %0.3f, C = %0.3f, AUPR = %0.3f" % (gamma, C, micro_aupr))
-            if micro_aupr > max_aupr:
-                C_opt = C
-                gamma_opt = gamma
-                max_aupr = micro_aupr
-    print ("### Optimal parameters: ")
-    print ("C_opt = %0.3f, gamma_opt = %0.3f" % (C_opt, gamma_opt))
-    print ("### Train dataset: AUPR = %0.3f" % (max_aupr))
-    print
-    print ("### Computing performance on test dataset...")
-    clf = OneVsRestClassifier(svm.SVC(C=C_opt, kernel='precomputed',
-                                      random_state=123,
-                                      probability=True), n_jobs=-1)
-    clf.fit(K_rbf_train[gamma_opt], y_train)
+    # delete 0 rows
+    X_train, y_train = remove_zero_annot_rows(X_train, y_train)
+    X_test, y_test = remove_zero_annot_rows(X_test, y_test)
+    print('X_train shape')
+    print(X_train.shape)
+    print('y_train shape')
+    print(y_train.shape)
 
-    # Compute performance on test set
-    # y_score = clf.decision_function(K_rbf_test[gamma_opt])
-    y_score = clf.predict_proba(K_rbf_test[gamma_opt])
-    y_pred = clf.predict(K_rbf_test[gamma_opt])
-
-    # performance measures for bootstrapping
+    # performance measures
     pr_micro = []
     pr_macro = []
     F1 = []
     acc = []
 
-    # individual goterms
-    pr_goterms = {}
-    for i in range(0, len(goterms)):
-        pr_goterms[goterms[i]] = []
+    pred_file = {'prot_IDs': protein_names,
+                 'GO_IDs': go_terms,
+                 'trial_preds': np.zeros((1, len(protein_names), len(go_terms))),
+                 'trial_splits': [(train_inds, test_inds)],
+                 'true_labels': y
+                 }
+    print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
+    #downsample_rate = 0.01 # for bacteria
+    #downsample_rate = 0.001 # for eukaryotes
 
-    # bootstraps
-    if bootstraps is None:
-        # generate indices for bootstraps
-        bootstraps = []
-        for i in range(0, 1000):
-            bootstraps.append(resample(np.arange(y_test.shape[0])))
+    exp_name = 'hyperparam_searches/' + keyword + '-' + ont + 'loso_val'
+    # no architecture search, just run it
+    if arch_set == 'bac':
+        # for bacteria
+        print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
+        params = BAC_PARAMS
+    elif arch_set == 'euk':
+        # for eukaryotes
+        print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
+        params = EUK_PARAMS
     else:
-        pass
+        print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
-    for ind in bootstraps:
-        perf_ind = evaluate_performance(y_test[ind],
-                                        y_score[ind],
-                                        y_pred[ind])
-        pr_micro.append(perf_ind['pr_micro'])
-        pr_macro.append(perf_ind['pr_macro'])
-        F1.append(perf_ind['F1'])
-        acc.append(perf_ind['acc'])
-        for i in range(0, len(goterms)):
-            pr_goterms[goterms[i]].append(perf_ind[i])
+    exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
+    params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+    
 
+    print ("### Using full training data...")
+    print("Using %s" % (params))
+    with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
+        pickle.dump(search_result, search_result_file)
+    params['exp_name'] = exp_name
+    history, model = build_and_fit_nn_classifier(X_train, y_train, best_params)
+
+    y_score = np.zeros(y_test.shape, dtype=float)
+    y_pred = np.zeros_like(y_test)
+
+    # Compute performance on test set
+    y_score = model.predict(X_test)
+    pred_file['trial_preds'][jj, :, :] = model.predict(X)
+    y_pred = y_score > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
+    perf_trial = evaluate_performance(y_test, y_score, y_pred)
+    for go_id in range(0, y_pred.shape[1]):
+        y_score_trials[go_id, jj] = perf_trial[go_id]
+    pr_micro.append(perf_trial['pr_micro'])
+    pr_macro.append(perf_trial['pr_macro'])
+    F1.append(perf_trial['F1'])
+    acc.append(perf_trial['acc'])
+    print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
+    print
+    print
     perf = dict()
     perf['pr_micro'] = pr_micro
     perf['pr_macro'] = pr_macro
     perf['F1'] = F1
     perf['acc'] = acc
-    perf['pr_goterms'] = pr_goterms
+    y_score_pred = None
 
-    return perf
+    return perf, y_score_trials, y_score_pred, pred_file
+
 
 def train_test(X, y, train_idx, test_idx, ker='rbf'):
     X_train = X[train_idx]
@@ -639,7 +687,7 @@ def build_nn_classifier(input_dim, output_dim, hidden_dim):
     return model 
 
 
-def build_maxout_nn_classifier(input_dim, output_dim, maxout_units): # this is all the hyperparameters of Wan et al.
+def build_maxout_nn_classifier_wan(input_dim, output_dim, maxout_units): # this is all the hyperparameters of Wan et al.
     optim = Adagrad(lr=0.05)
     '''
     the following code doesn't work as keras 2.0 removed maxout dense layer
@@ -674,17 +722,74 @@ def build_maxout_nn_classifier(input_dim, output_dim, maxout_units): # this is a
     model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1_score])
     model.summary()
     return model
+   
+
+def build_maxout_nn_classifier(in_shape=0, out_shape=0, hidden_dim_1=500, hidden_dim_2=0, hidden_dim_3=800, hidden_dim_4=800, maxout_units=3, activation='sigmoid', dropout=0.0, learning_rate=0.01):
+    K.clear_session()
+    input_layer = Input(shape=(in_shape,))
+    '''
+    hidden_dim_1 = int(params['hidden_dim_1'])
+    hidden_dim_2 = int(params['hidden_dim_2']) if params['hidden_dim_2'] != 'None' else None
+    hidden_dim_3 = int(params['hidden_dim_3']) if params['hidden_dim_3'] != 'None' else None
+    hidden_dim_4 = int(params['hidden_dim_4']) if params['hidden_dim_4'] != 'None' else None
+    '''
+    if maxout_units == 0:
+        maxout = False
+    else:
+        maxout = True
+    x = input_layer
+    if hidden_dim_1 != 0:
+        if maxout:
+            x = maximum([Dense(hidden_dim_1)(x) for _ in range(maxout_units)]) # 3 pieces
+        else:
+            x = Dense(hidden_dim_1, activation=activation)(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout)(x)
+    if hidden_dim_2 != 0:
+        if maxout:
+            x = maximum([Dense(hidden_dim_2)(x) for _ in range(maxout_units)]) # 3 pieces
+        else:
+            x = Dense(hidden_dim_2, activation=activation)(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout)(x)
+    if hidden_dim_3 != 0:
+        if maxout:
+            x = maximum([Dense(hidden_dim_3)(x) for _ in range(maxout_units)]) # 3 pieces
+        else:
+            x = Dense(hidden_dim_3, activation=activation)(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout)(x)
+    if hidden_dim_4 != 0:
+        if maxout:
+            x = maximum([Dense(hidden_dim_4)(x) for _ in range(maxout_units)]) # 3 pieces
+        else:
+            x = Dense(hidden_dim_4, activation=activation)(x)
+        x = BatchNormalization()(x)
+        x = Dropout(dropout)(x)
+    output_layer = Dense(out_shape, activation='sigmoid')(x)
+    
+    model = Model(inputs=input_layer, outputs=output_layer)
+    optim = Adagrad(lr=learning_rate)
+    #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1_score])
+    model.compile(optimizer=optim, loss='binary_crossentropy')
+    model.summary()
+    
+    return model 
 
 
 def create_param_dict_string(params):
     dict_string = params['exp_name'] + '_maxout_' + str(params['maxout_units']) + '_arch_'
     for i in range(1,5):
         dict_string += str(params['hidden_dim_' + str(i)]) + '_'
-    dict_string += 'act_' + params['activation'] + '_lr_' + str(params['learning_rate']) + '_num_epoch_' + str(params['num_epochs']) + '_batch_size_' + str(params['batch_size'])
+    dict_string += 'act_' + params['activation'] + '_lr_' + str(params['learning_rate']) + '_num_epoch_' + str(params['epochs']) + '_batch_size_' + str(params['batch_size'])
     return dict_string
    
 
-def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
+#def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, hidden_dim_1=500, hidden_dim_2=0, hidden_dim_3=800, hidden_dim_4=800, maxout_units=3, activation='sigmoid', dropout=0.0, learning_rate=0.01, batch_size=64, num_epochs=200, exp_name='no_name'):
+def build_and_fit_nn_classifier(X, y, params, verbose=0):
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.1, random_state=1)
+    print(X_train[0][X_train[0] != 0])
+    K.clear_session()
     input_layer = Input(shape=(X_train.shape[1],))
     '''
     hidden_dim_1 = int(params['hidden_dim_1'])
@@ -692,10 +797,10 @@ def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
     hidden_dim_3 = int(params['hidden_dim_3']) if params['hidden_dim_3'] != 'None' else None
     hidden_dim_4 = int(params['hidden_dim_4']) if params['hidden_dim_4'] != 'None' else None
     '''
-    hidden_dim_1 = params['hidden_dim_1']
-    hidden_dim_2 = params['hidden_dim_2']
-    hidden_dim_3 = params['hidden_dim_3']
-    hidden_dim_4 = params['hidden_dim_4']
+    hidden_dim_1 = int(params['hidden_dim_1'])
+    hidden_dim_2 = int(params['hidden_dim_2'])
+    hidden_dim_3 = int(params['hidden_dim_3'])
+    hidden_dim_4 = int(params['hidden_dim_4'])
     if params['maxout_units'] == 0:
         maxout = False
     else:
@@ -734,21 +839,37 @@ def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, params):
     
     model = Model(inputs=input_layer, outputs=output_layer)
     optim = Adagrad(lr=params['learning_rate'])
-    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1score])
+    #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1_score])
+    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[real_AUPR_tensors])
     model.summary()
-    
-    history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['num_epochs']), verbose=0)
+   
+    early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=30)
+    history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose, callbacks=[early])
+    #history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose)
+    y_pred_val = model.predict(X_val)
+    micro_val, _ = real_AUPR(y_val, y_pred_val)
+    print('Micro aupr of validation set')
+    print(micro_val)
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
     plt.title('Model loss')
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.legend(['Train', 'Test'], loc='upper left')
+
     param_dict_string = create_param_dict_string(params)
+
     loss_string = param_dict_string + '_loss.png'
     print('Saving ' + loss_string)
     plt.savefig(loss_string)
     plt.close()
+
+    plt.plot(history.history['real_AUPR_tensors'])
+    plt.plot(history.history['val_real_AUPR_tensors'])
+    plt.title('Model micro AUPR')
+    aupr_string = param_dict_string + '_aupr.png'
+    print('Saving ' + aupr_string)
+    plt.savefig(aupr_string)
     
     return history, model 
 
@@ -850,12 +971,48 @@ def output_projection_files(X, y, model_name, ont, label_names):
     np.savetxt('./features_and_labels/' + model_name + '_' + ont + '_projection_labels.tsv', y, delimiter='\t', header='\t'.join(label_names))
     
 
-def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None, downsample_rate=0.01):
+def train_and_predict_all_orgs(X, y, X_to_pred, pred_protein_names, go_terms, keyword, ont, arch_set=None):
+    """Train on all proteins with annotations, and predicts on all proteins in X_to_pred"""
+    # Each row in X and y should correspond with each other
+    # X_to_pred should be the network features that align with pred_protein_names
+    pred_file = {'prot_IDs': pred_protein_names,
+                 'GO_IDs': go_terms,
+                 'preds': np.zeros((len(pred_protein_names), len(go_terms))), # fill up this matrix once model is trained and ready to predict
+                 }
+
+    # filter samples with no annotations in order to train classifier
+    X_with_annot, y_with_annot = remove_zero_annot_rows(X, y)
+
+    print ("Train samples=" + str(y.shape[0]))
+
+    if arch_set == 'bac':
+        # for bacteria
+        print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
+        params = BAC_PARAMS
+    elif arch_set == 'euk':
+        # for eukaryotes
+        print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
+        params = EUK_PARAMS
+    else:
+        print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
+
+    params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+    exp_name = 'hyperparam_searches/' + keyword + '-' + ont
+    params['exp_name'] = exp_name
+    print ("### Using full training data...")
+    history, model = build_and_fit_nn_classifier(X_with_annot, y_with_annot, params, verbose=1)
+
+    # Predict for those proteins in X_to_pred
+    pred_file['preds'][:, :] = model.predict(X_to_pred)
+
+    return pred_file
+
+
+def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None, num_hyperparam_sets=25, arch_set=None):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
     X, _ = remove_zero_annot_rows(X, y)
     protein_names, y = remove_zero_annot_rows(np.array(protein_names), y)
-    hidden_dims = [3]
 
     if X_pred is not None:
         y_score_pred = np.zeros((X_pred.shape[0], y.shape[1]), dtype=np.float)
@@ -867,7 +1024,7 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
     acc = []
 
     # shuffle and split training and test sets
-    trials = ShuffleSplit(n_splits=n_trials, test_size=0.2, random_state=None)
+    trials = ShuffleSplit(n_splits=n_trials, test_size=0.2, random_state=1)
     ss = trials.split(X)
     trial_splits = []
     for train_idx, test_idx in ss:
@@ -894,54 +1051,48 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
         #downsample_rate = 0.01 # for bacteria
         #downsample_rate = 0.001 # for eukaryotes
 
-        exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-' + str(jj)
-        params = {'hidden_dim_1': [500, 1000],
-                    'hidden_dim_2': [200, 700, 0],
-                    'hidden_dim_3': [300, 800],
-                    'hidden_dim_4': [800, 1000, 1500],
-                    'maxout_units': [3, 4, 5],
-                    'dropout': [0.2, 0.3, 0.4, 0.5],
-                    'num_epochs': [200, 250, 300],
-                    'learning_rate': [0.01],
-                    'activation': ['relu'],
-                    'batch_size': [16, 32],
-                    'exp_name': [exp_name]
-        }
-        exp_path = exp_name + '_downsample_rate_' + str(downsample_rate)
-        results = ta.Scan(X_train, y_train, model=build_and_fit_nn_classifier, params=params, val_split=0.2, print_params=True, fraction_limit=downsample_rate, experiment_name=exp_path, clear_session=True)
-        files = os.listdir(exp_path)
-        formatted_dates = []
-        for fname in files:
-            date = fname.split('.')[0]
-            date_fmted = datetime.datetime.strptime(date, '%m%d%y%H%M%S')
-            formatted_dates.append(date_fmted)
-        most_recent_exp = exp_path + '/' + max(formatted_dates).strftime('%m%d%y%H%M%S') + '.csv'
-        print(most_recent_exp)
-        report = ta.Reporting(most_recent_exp)
-        print ("### Using full training data...")
-        #best_p = results.data.sort_values('val_fmeasure_acc', ascending=False).to_dict('records')[0] # weirdly, there's no best parameters function in talos for the results that gets a dictionary that was the same as the input to the model
-        best_params = report.best_params('val_f1score', ['']).head(1) # weirdly, there's no best parameters function in talos for the results that gets a dictionary that was the same as the input to the model
-        '''
-        best_p = {}
-        best_p['maxout_units'] = int(best_params['maxout_units'])
-        best_p['hidden_dim_1'] = int(best_params['hidden_dim_1'])
-        best_p['hidden_dim_2'] = int(best_params['hidden_dim_2'])
-        best_p['hidden_dim_3'] = int(best_params['hidden_dim_3'])
-        best_p['hidden_dim_4'] = int(best_params['hidden_dim_4'])
-        best_p['dropout'] = float(best_params['dropout'])
-        best_p['num_epochs'] = int(best_params['num_epochs'])
-        best_p['learning_rate'] = int(best_params['learning_rate'])
-        best_p['activation'] = best_params['activation']
-        best_p['batch_size'] = int(best_params['batch_size'])
-        best_p['exp_name'] = best_params['exp_name']
-        '''
-        best_p = best_params.to_dict('records')[0]
-        print('Best model parameters for this trial:')
-        print(best_p)
-        history, model = build_and_fit_nn_classifier(X[train_idx, :], y_train, X[train_idx, :], y_train, params=best_p)
+        exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-fold-' + str(jj)
+        if arch_set == 'bac':
+            # for bacteria
+            print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
+            params = BAC_PARAMS
+        elif arch_set == 'euk':
+            # for eukaryotes
+            print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
+            params = EUK_PARAMS
+        else:
+            print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
-        #model = build_maxout_nn_classifier(X_train.shape[1], y_train.shape[1], hidden_dim_opt)
-        #model.fit(X[train_idx, :], y_train, epochs=NUM_EPOCHS)
+        exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
+        '''
+        # hyperparam search
+        params['in_shape'] = X_train.shape[1]
+        params['out_shape'] = y_train.shape[1]
+        keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
+        clf = RandomizedSearchCV(keras_model, params, cv=5, n_iter=num_hyperparam_sets, scoring='average_precision')
+        search_result = clf.fit(X_train, y_train)
+        # summarize results
+        means = search_result.cv_results_['mean_test_score']
+        stds = search_result.cv_results_['std_test_score']
+        params = search_result.cv_results_['params']
+        for mean, stdev, param in zip(means, stds, params):
+                print("%f (%f) with: %r" % (mean, stdev, param))
+        print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
+        best_params = search_result.best_params_
+        print('Best model parameters for this trial:')
+        print(best_params)
+        print ("### Using full training data...")
+        with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
+            pickle.dump(search_result, search_result_file)
+        del best_params['in_shape']
+        del best_params['out_shape']
+        '''
+
+        # no hyperparam search
+        best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+        best_params['exp_name'] = exp_name
+        history, model = build_and_fit_nn_classifier(X[train_idx, :], y_train, best_params, verbose=1)
+
         y_score = np.zeros(y_test.shape, dtype=float)
         y_pred = np.zeros_like(y_test)
 

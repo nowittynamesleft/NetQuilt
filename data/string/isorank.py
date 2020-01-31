@@ -1,13 +1,11 @@
 import numpy as np
 from scipy import sparse
+from scipy.sparse.linalg import norm
 
 
-def RWR(A, alpha=0.95, maxiter=3, add=True):
+def RWR(A, alpha=0.9, maxiter=3, tol=1e-3):
     print('RWR')
-    if add:
-        print('Adding P to S every iteration')
-    else:
-        print('S will be P at iteration ' + str(maxiter))
+    print('Tolerance ' + str(tol))
     n = A.shape[0]
     with np.errstate(divide='ignore'):
         d = 1.0/A.sum(axis=1)
@@ -21,20 +19,34 @@ def RWR(A, alpha=0.95, maxiter=3, add=True):
     # pagerank
     I = sparse.eye(n, dtype=np.float)
     P = I
-    S = sparse.lil_matrix(np.zeros((n, n)), dtype=np.float)
     for ii in range(0, maxiter):
+        prev = P
         P = alpha*A.dot(P) + (1.0 - alpha)*I
-        if add:
-            S += P
-        else:
-            S = P
-        print ("### iteration %d" % (ii))
+        delta = norm(P - prev, ord='fro')/norm(prev, ord='fro')
+        print ("### iteration %d with delta=%0.3f" % (ii, delta))
+        if delta < tol:
+            break
 
-    return S
+    return P
+
+def row_wise_normalize(mat):
+    # row-wise normalization of nxn matrix
+    n1 = mat.shape[0]
+    with np.errstate(divide='ignore'):
+        row_sums_inv = 1.0/mat.sum(axis=1)
+    row_sums_inv[np.isposinf(row_sums_inv)] = 0
+
+    row_sums_inv = np.asarray(row_sums_inv).reshape(-1)
+    row_sums_inv = sparse.spdiags(row_sums_inv, 0, n1, n1)
+    norm_mat = row_sums_inv.dot(mat)
+
+    return norm_mat
 
 
-def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False, add=True):
+def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=1000, rand_init=False, ones_init=False, tol=1e-3):
     print('ISORANK')
+    print('Tolerance')
+    print(tol)
     try:
         A1_is_pos = np.sum(A1 < 0) == 0
         A2_is_pos = np.sum(A2 < 0) == 0
@@ -46,6 +58,13 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False
         print(A2_is_pos)
         print('Adjacency matrices not all nonneggative. Exiting.') 
         exit()
+
+    n1 = A1.shape[0]
+    n2 = A2.shape[0]
+    A1 = row_wise_normalize(A1)
+    A2 = row_wise_normalize(A2)
+
+    '''
     n1 = A1.shape[0]
     n2 = A2.shape[0]
     with np.errstate(divide='ignore'):
@@ -63,19 +82,24 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False
 
     A1 = d1.dot(A1)
     A2 = d2.dot(A2)
+    '''
 
+    # ***adding this normalization:
+    R_normalized = row_wise_normalize(R_12)
     # IsoRank algorithm
     # R = R_12
     #R = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
     if rand_init:
-        R = sparse.lil_matrix(np.random.rand(n1, n2), dtype=np.float)
+        S = sparse.lil_matrix(np.random.rand(n1, n2), dtype=np.float)
     elif ones_init:
-        R = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
+        S = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
     else:
-        R = R_12
-    S = R
+        print('Using normalized R as initialization')
+        S = R_normalized
+    #S = S/norm(S, ord=1) # normalizing S
+    S = S/(S.shape[0]*S.shape[1])
     for ii in range(0, maxiter):
-        R /= R.sum()
+        S_prev = S
         try:
             assert alpha >= 0 and 1 - alpha >= 0
         except AssertionError:
@@ -83,21 +107,25 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=3, rand_init=False, ones_init=False
             print(1 - alpha >= 0)
             print('Alpha  or 1 - alpha is negative. Exiting.')
             exit()
-        R = alpha*A1.transpose().dot(R.dot(A2)) + (1.0 - alpha)*R_12
-        if add:
-            print('Adding to S instead of taking the last iteration')
-            S += R
-        else:
-            print('S is last iteration of algorithm, not sum of all iterations')
-            S = R
-        print ("### iteration %d" % (ii))
+        S = alpha*A1.transpose().dot(S.dot(A2)) + (1.0 - alpha)*R_normalized
+        #S = S/norm(S, ord=1)
+        #S = S/np.sum(S)
+        print(S)
         try:
-            R_is_pos = np.sum(R < 0) == 0
-            assert R_is_pos
+            S_is_pos = np.sum(S < 0) == 0
+            assert S_is_pos
         except AssertionError:
-            print(np.sum(R < 0) == 0)
-            print('R not all greater than 0. Exiting.') 
+            print(np.sum(S < 0) == 0)
+            print('S not all greater than 0. Exiting.') 
             exit()
+        delta = norm(S - S_prev, ord='fro')/norm(S_prev, ord='fro')
+        print(norm(S_prev, ord='fro'))
+        print(norm(S, ord='fro'))
+        print ("iteration %d with delta=%f" % (ii, delta))
+        if delta < tol:
+            print('Converged to less than ' + str(tol))
+            print(S)
+            break
 
     return S
 
