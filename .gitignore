@@ -6,3 +6,10 @@
 *.dmp
 *.tab
 *slurm*
+*.png
+*logfile*
+*.pin
+*.phr
+*.psq
+*.txt
+*.pyc
