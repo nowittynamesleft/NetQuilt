@@ -2,6 +2,7 @@ import subprocess
 import sys
 import itertools
 from pathlib import Path
+import multiprocessing
 
 
 def get_fastas(taxa, fasta_folder='./fasta_files/'):
@@ -32,7 +33,9 @@ def interspecies_blast(tax_ids, fasta_folder='./fasta_files/', blast_folder='./b
         if not Path(fasta_folder + fasta_2).is_file():
             print(str(fasta_2) + ' not found. Downloading it.')
             get_fastas([taxa_2])
-        command_list = ['blastp', '-db', fasta_folder + fasta_2, '-query', fasta_folder + fasta_1, '-outfmt', '6', '-evalue', '1e-3', '-out', blast_folder + taxa_1 + '-' + taxa_2 + '_blastp.tab']
+        num_cores = multiprocessing.cpu_count()
+        print('Num cores: ' + str(num_cores))
+        command_list = ['blastp', '-db', fasta_folder + fasta_2, '-query', fasta_folder + fasta_1, '-outfmt', '6', '-evalue', '1e-3', '-out', blast_folder + taxa_1 + '-' + taxa_2 + '_blastp.tab', '-num_threads', str(num_cores)]
         command = ' '.join(command_list)
         print('Running ' + command)
         subprocess.run(command_list)

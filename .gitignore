@@ -1,0 +1,8 @@
+*.log
+*.pckl
+*.out
+*.tsv
+*.fa
+*.dmp
+*.tab
+*slurm*
