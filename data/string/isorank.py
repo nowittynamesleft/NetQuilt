@@ -3,7 +3,7 @@ from scipy import sparse
 from scipy.sparse.linalg import norm
 
 
-def RWR(A, alpha=0.9, maxiter=3, tol=1e-3):
+def RWR(A, alpha=0.9, maxiter=3, tol=1e-2):
     print('RWR')
     print('Tolerance ' + str(tol))
     n = A.shape[0]
@@ -43,7 +43,7 @@ def row_wise_normalize(mat):
     return norm_mat
 
 
-def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=1000, rand_init=False, ones_init=False, tol=1e-3):
+def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=False, tol=1e-2):
     print('ISORANK')
     print('Tolerance')
     print(tol)
@@ -110,7 +110,6 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=1000, rand_init=False, ones_init=Fa
         S = alpha*A1.transpose().dot(S.dot(A2)) + (1.0 - alpha)*R_normalized
         #S = S/norm(S, ord=1)
         #S = S/np.sum(S)
-        print(S)
         try:
             S_is_pos = np.sum(S < 0) == 0
             assert S_is_pos

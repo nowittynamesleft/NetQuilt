@@ -4,7 +4,10 @@ import pickle
 import csv
 import obonet
 import sys
-from pathlib import Path
+from os.path import isfile
+import subprocess
+
+# Edited for string v11 instead of 10.5
 
 def save_annots(tax_ids):
     # read *.obo file
@@ -21,17 +24,19 @@ def save_annots(tax_ids):
 
     Annot = {}
     Annot['prot_IDs'] = []
-    Annot['prot_names'] = []
+    #Annot['prot_names'] = []
 
     Annot['go_IDs'] = {}
     Annot['go_IDs']['molecular_function'] = []
     Annot['go_IDs']['biological_process'] = []
     Annot['go_IDs']['cellular_component'] = []
 
+    '''
     Annot['go_names'] = {}
     Annot['go_names']['molecular_function'] = []
     Annot['go_names']['biological_process'] = []
     Annot['go_names']['cellular_component'] = []
+    '''
 
 
     ii = 0
@@ -49,34 +54,46 @@ def save_annots(tax_ids):
 
     lines = []
     annot_folder = './string_annot/'
-    go_path = annot_folder + 'all_go_knowledge_full.tsv'
-    if not Path(go_path):
+    #go_path = annot_folder + 'all_go_knowledge_full.tsv'
+    go_path = annot_folder + 'all_organisms.GO_2_string.2018.tsv'
+    if not isfile(go_path):
         print(go_path + ' not found. Downloading and gunzipping it.')
-        subprocess.run(['wget', '-P', annot_folder, 'https://version-10-5.string-db.org/mapping_files/gene_ontology_mappings/all_go_knowledge_full.tsv.gz'])
+        #subprocess.run(['wget', '-P', annot_folder, 'https://version-10-5.string-db.org/mapping_files/gene_ontology_mappings/all_go_knowledge_full.tsv.gz'])
+        subprocess.run(['wget', '-P', annot_folder, 'https://string-db.org/mapping_files/geneontology/all_organisms.GO_2_string.2018.tsv.gz'])
         subprocess.run(['gunzip', '-f', go_path + '.gz'])
 
-    with open('string_annot/all_go_knowledge_full.tsv') as tsvfile:
+    with open(go_path) as tsvfile:
         reader = csv.reader(tsvfile, delimiter='\t')
+        next(reader) # skip header for version 11
         for row in reader:
+            '''
             tax_id = row[0].strip()
             string_id = row[1].strip()
             protein_name = row[2].strip()
             go_id = row[3].strip()
             go_name = row[4].strip()
             evidence = row[6].strip()
-            if tax_id in tax_ids and evidence in evidence_codes and go_id in graph and go_id not in root_terms:
-                string_id = tax_id + '.' + string_id
+            '''
+            # no evidence, protein name or go name in version 11
+            # only string id, tax id, and go id, and ontology
+            tax_id = row[0].strip()
+            go_id = row[2].strip()
+            string_id = row[3].strip()
+            
+            #if tax_id in tax_ids and evidence in evidence_codes and go_id in graph and go_id not in root_terms:
+            if tax_id in tax_ids and go_id in graph and go_id not in root_terms:
+                #string_id = tax_id + '.' + string_id # already is the case for version 11
                 namespace = graph.node[go_id]['namespace']
                 lines.append([namespace, string_id, go_id])
                 if string_id not in string2idx:
                     string2idx[string_id] = ii
                     Annot['prot_IDs'].append(string_id)
-                    Annot['prot_names'].append(protein_name)
+                    #Annot['prot_names'].append(protein_name)
                     ii += 1
                 if go_id not in go2idx[namespace]:
                     go2idx[namespace][go_id] = jj[namespace]
                     Annot['go_IDs'][namespace].append(go_id)
-                    Annot['go_names'][namespace].append(go_name)
+                    #Annot['go_names'][namespace].append(go_name)
                     jj[namespace] += 1
 
 
@@ -97,8 +114,9 @@ def save_annots(tax_ids):
     # pickle.dump(Annot, open('9606_string.04_2015_annotations.pckl', 'wb'))
     # pickle.dump(Annot, open('553174_string.04_2015_annotations.pckl', 'wb'))
     name_prefix = '-'.join(tax_ids)
-    pickle.dump(Annot, open('./string_annot/' + name_prefix + '_string.04_2015_annotations.pckl', 'wb'))
-    min_coverage = 0.01
+    #pickle.dump(Annot, open('./string_annot/' + name_prefix + '_string.04_2015_annotations.pckl', 'wb'))
+    pickle.dump(Annot, open(annot_folder + name_prefix + '_string.01_2019_annotations.pckl', 'wb'))
+    min_coverage = 0.005
     max_coverage = 0.05
     for ont in ['molecular_function', 'biological_process', 'cellular_component']:
         num_prots = Annot['annot'][ont].shape[0]
@@ -109,10 +127,11 @@ def save_annots(tax_ids):
         print(chosen_go_IDs)
         print(len(chosen_go_IDs))
         pickle.dump(chosen_go_IDs, open('./string_annot/' + name_prefix + '_' + ont + '_train_goids.pckl', 'wb'))
-        chosen_go_names = np.array(Annot['go_names'][ont])[chosen_go_inds] 
-        with open('./string_annot/' + name_prefix + '_' + ont + '_train_gonames.txt', 'w') as f:
-            for i, go_name in enumerate(chosen_go_names):
-                f.write("%s\t%s\n" % (chosen_go_IDs[i], go_name))
+        # no go names for version 11
+        #chosen_go_names = np.array(Annot['go_names'][ont])[chosen_go_inds] 
+        #with open('./string_annot/' + name_prefix + '_' + ont + '_train_gonames.txt', 'w') as f:
+        #    for i, go_name in enumerate(chosen_go_names):
+        #        f.write("%s\t%s\n" % (chosen_go_IDs[i], go_name))
     
 
 if __name__ == '__main__':

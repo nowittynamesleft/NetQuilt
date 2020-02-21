@@ -259,7 +259,8 @@ def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, 
         string_prots = []
         X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
         for ii in range(0, len(tax_ids)):
-            Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+            #Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+            Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb"))
             X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
             string_prots += Net['prot_IDs']
             for jj in range(ii + 1, len(tax_ids)):
@@ -290,7 +291,8 @@ def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, 
             string_prots = []
             X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
             for ii in range(0, len(tax_ids)):
-                Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+                #Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+                Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb"))
                 X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
                 string_prots += Net['prot_IDs']
                 for jj in range(ii + 1, len(tax_ids)):
@@ -365,7 +367,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
     use_orig_feats = True
     if use_orig_feats:
         print('Using original feats')
-        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
+        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=test_tax_id)
 
     else:
         #  Load networks/features
@@ -495,9 +497,9 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
     Y = Y[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
-    output_projection_files(X, Y, model_name, ont, list(test_goids))
+    #output_projection_files(X, Y, model_name, ont, list(test_goids))
 
-    np.where(Y.any(axis=1))[0]
+    #np.where(Y.any(axis=1))[0]
     print(string_prots[string_idx[10]])
     print(np.array(goterms)[np.where(Y[10, :])])
 
@@ -526,7 +528,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
     #pickle.dump(Pred, open(results_path + model_name + '_' + pred_taxon + '_' + ont + '_' + val_type + "_preds.pckl", "wb"))
 
 
-def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha):
+def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=None):
     # creating a block matrix
     print ("### Creating the block matrix...")
     string_prots = []
@@ -534,8 +536,18 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
     species_string_prots = {}
     Nets = []
     for ii in range(0, len(tax_ids)):
-        print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl")
-        Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+        #print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl")
+        #Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
+        if tax_ids[ii] == left_out_tax_id:
+            other_taxa = tax_ids.copy()
+            other_taxa.remove(left_out_tax_id)
+            left_out_feat_fname = data_folder + network_folder + tax_ids[ii] + "_leftout_features_using_" + ','.join(other_taxa) + "_string.v11.0.pckl"
+            print('Loading ' + left_out_feat_fname)
+            #4932_leftout_features_using_9606_string.v11.0.pckl
+            Net = pickle.load(open(left_out_feat_fname, "rb"))
+        else:
+            print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl")
+            Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb"))
         Nets.append(Net)
         cum_num_prot_ids.append(cum_num_prot_ids[ii] + len(Net['prot_IDs']))
         string_prots += Net['prot_IDs']
@@ -555,6 +567,8 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
             X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[jj]:cum_num_prot_ids[jj+1]] = R
             X[cum_num_prot_ids[jj]:cum_num_prot_ids[jj+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = R.T
     print ("### Shape of the block matrix: ", X.shape)
+    print('Length of string_prots')
+    print(len(string_prots))
     return X, string_prots, species_string_prots
 
 
@@ -585,10 +599,10 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     Y = Y[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
-    output_projection_files(X, Y, model_name, ont, list(test_goids))
+    #output_projection_files(X, Y, model_name, ont, list(test_goids))
 
     pred_file = train_and_predict_all_orgs(X, Y, X_to_pred, string_prots, test_goids, model_name, ont, arch_set=arch_set)
-    pickle.dump(pred_file, open(results_path + model_name.split('.')[0] + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
+    pickle.dump(pred_file, open(results_path + model_name + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
 
 def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False, num_hyperparam_sets=None, arch_set=None):
     #  Load annotations
@@ -598,30 +612,6 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     goterms = Annot['go_IDs'][ont]
 
     if use_orig_feats:
-        '''
-        # creating a block matrix
-        print('Using original feats')
-        print ("### Creating the block matrix...")
-        string_prots = []
-        X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
-        for ii in range(0, len(tax_ids)):
-            #Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-            Net = pickle.load(open(data_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-            X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
-            string_prots += Net['prot_IDs']
-            for jj in range(ii + 1, len(tax_ids)):
-                #R = pickle.load(open(data_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
-                block_mat_fname = data_folder + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl"
-                print('Loading ' + block_mat_fname)
-                R = pickle.load(open(block_mat_fname, "rb"))
-                R = minmax_scale(np.asarray(R.todense()))
-                X[ii][jj] = R
-                X[jj][ii] = R.T
-        X = np.asarray(np.bmat(X))
-        print ("### Shape of the block matrix: ", X.shape)
-        X = minmax_scale(X)
-        print(X)
-        '''
         print('Using orig features')
         X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
 
@@ -638,52 +628,6 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
             The following code assumes these things:
                 - You have the random walk with restart profiles of the string networks already in a pickle file
                 - You have the isorank 'block' matrix (rectangle matrix for interspecies connections) (pretty sure 'block' is a misnomer)
-            '''
-            '''
-            # creating a block matrix
-            print ("### Creating the block matrix...")
-            string_prots = []
-            X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
-            for ii in range(0, len(tax_ids)):
-                Net = pickle.load(open(data_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-                X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
-                string_prots += Net['prot_IDs']
-                for jj in range(ii + 1, len(tax_ids)):
-                    print('Loading ' + data_folder + 'block_matrix_files/' + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
-                    R = pickle.load(open(data_folder + 'block_matrix_files/' + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
-                    R = minmax_scale(np.asarray(R.todense()))
-                    X[ii][jj] = R
-                    X[jj][ii] = R.T
-            X = np.asarray(np.bmat(X))
-            print ("### Shape of the block matrix: ", X.shape)
-            '''
-            '''
-            cum_num_prot_ids = [0]
-            species_string_prots = {}
-            Nets = []
-            for ii in range(0, len(tax_ids)):
-                print('Loading ' + data_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl")
-                Net = pickle.load(open(data_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-                Nets.append(Net)
-                cum_num_prot_ids.append(cum_num_prot_ids[ii] + len(Net['prot_IDs']))
-                string_prots += Net['prot_IDs']
-                species_string_prots[tax_ids[ii]] = Net['prot_IDs']
-
-            X = np.zeros((cum_num_prot_ids[-1], cum_num_prot_ids[-1]))
-            print('Filling up X matrix')
-            for ii in range(0, len(tax_ids)):
-                Net = Nets[ii]
-                X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(Net['net'].todense()))
-            for ii in range(0, len(tax_ids)):
-                #Net = pickle.load(open(data_folder + 'network_files/' + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-                #X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(Net['net'].todense()))
-                for jj in range(ii + 1, len(tax_ids)):
-                    print('Loading ' + data_folder + block_matrix_folder  + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
-                    R = pickle.load(open(data_folder + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
-                    R = minmax_scale(np.asarray(R.todense()))
-                    X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[jj]:cum_num_prot_ids[jj+1]] = R
-                    X[cum_num_prot_ids[jj]:cum_num_prot_ids[jj+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = R.T
-            print ("### Shape of the block matrix: ", X.shape)
             '''
             X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
 
@@ -719,26 +663,20 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     The following code assumes that the species that is going to be predicted for
     had features in the X matrix loaded above.
     '''
-    '''
-    pred_taxon = '9606'
-    Pred = {}
-    pred_spec_idx = []
-    pred_spec_prots = []
-    for j, prot in enumerate(string_prots):
-        if prot.startswith(pred_taxon):
-            pred_spec_idx.append(j)
-            pred_spec_prots.append(prot)
-    X_pred_spec = X[pred_spec_idx]
-    '''
 
     # get common indices annotations
+    print(annot_prots[:20])
+    print(string_prots[:20])
+    
     annot_idx, string_idx = get_common_indices(annot_prots, string_prots)
 
     # aligned data
-    X = X[string_idx]
-    Y = Y[annot_idx]
+    X = X[string_idx, :]
+    Y = Y[annot_idx, :]
+    print(X.shape)
+    print(Y.shape)
 
-    validation_net_prots = np.array(string_prots)[string_idx]
+    validation_net_prots = np.array(string_prots)[string_idx] # names of proteins that are in X after getting common indices
 
     # selected goids
     test_goids = pickle.load(open(test_goid_fname, 'rb'))
@@ -748,7 +686,7 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     Y = Y[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
-    output_projection_files(X, Y, model_name, ont, list(test_goids))
+    #output_projection_files(X, Y, model_name, ont, list(test_goids))
     # 5 fold cross val
     if use_nn:
         #perf, y_score_trials, y_score_pred = cross_validation_nn(X, Y, n_trials=10, X_pred=X_pred_spec)

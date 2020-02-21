@@ -159,10 +159,11 @@ def evaluate_performance(y_test, y_score, y_pred):
 
 
 def remove_zero_annot_rows(X, y):
-    del_rid = np.where(y.sum(axis=1) == 0)[0]
-    y_new = np.delete(y, del_rid, axis=0)
-    X_new = np.delete(X, del_rid, axis=0)
-    return X_new, y_new
+    keep_rows = np.where(y.sum(axis=1) != 0)[0]
+    y = y[keep_rows]
+    X = X[keep_rows]
+
+    return X, y
 
 
 def leave_one_species_out_val(X, y, spec_inds, test_species, ker='rbf'):
@@ -844,6 +845,7 @@ def build_and_fit_nn_classifier(X, y, params, verbose=0):
     model.summary()
    
     early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=30)
+    #early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=5)
     history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose, callbacks=[early])
     #history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose)
     y_pred_val = model.predict(X_val)
@@ -1011,6 +1013,8 @@ def train_and_predict_all_orgs(X, y, X_to_pred, pred_protein_names, go_terms, ke
 def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None, num_hyperparam_sets=25, arch_set=None):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
+    print("before remove_zero_annot_rows")
+    print(X.shape)
     X, _ = remove_zero_annot_rows(X, y)
     protein_names, y = remove_zero_annot_rows(np.array(protein_names), y)
 

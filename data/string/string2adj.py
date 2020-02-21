@@ -3,7 +3,11 @@ import pickle
 import numpy as np
 import subprocess
 import sys
+import multiprocessing
+import itertools
+from multiprocessing import Pool
 
+# Edited for version 11
 
 def load_mappings(fname):
     # mapping string id to uniprot ids
@@ -69,20 +73,39 @@ def combine_networks_no_textmining(string_dict):
     return S
 
 
-def save_networks(tax_ids, network_folder='./network_files/'):
+def save_single_network(taxon, network_folder):
+    print (taxon)
+    #fname = tax + '.protein.links.detailed.v10.5.txt.gz'
+    fname = taxon + '.protein.links.detailed.v11.0.txt.gz'
+    try:
+        String = load_string_nets(network_folder + fname[:-3])
+    except FileNotFoundError:
+        #subprocess.run(['wget', '-P', network_folder, 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
+        subprocess.run(['wget', '-P', network_folder, 'https://stringdb-static.org/download/protein.links.detailed.v11.0/' + fname])
+        subprocess.run(['gunzip', '-f', network_folder + fname])
+        String = load_string_nets(network_folder + fname[:-3])
+    pickle.dump(String, open(network_folder + taxon + "_networks_string.v11.0.pckl", "wb"))
+
+def save_networks(tax_ids, network_folder='./network_files_no_add/'):
+    pool = Pool(multiprocessing.cpu_count())
+    pool.starmap(save_single_network, zip(tax_ids, itertools.repeat(network_folder)))
+    '''
     for tax in tax_ids:
         print (tax)
-        fname = tax + '.protein.links.detailed.v10.5.txt.gz'
+        #fname = tax + '.protein.links.detailed.v10.5.txt.gz'
+        fname = tax + '.protein.links.detailed.v11.0.txt.gz'
         try:
             String = load_string_nets(network_folder + fname[:-3])
         except FileNotFoundError:
-            subprocess.run(['wget', '-P', network_folder, 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
+            #subprocess.run(['wget', '-P', network_folder, 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
+            subprocess.run(['wget', '-P', network_folder, 'https://stringdb-static.org/download/protein.links.detailed.v11.0/' + fname])
             subprocess.run(['gunzip', '-f', network_folder + fname])
-        String = load_string_nets(network_folder + fname[:-3])
-        pickle.dump(String, open(network_folder + tax + "_networks_string.v10.5.pckl", "wb"))
+            String = load_string_nets(network_folder + fname[:-3])
+        pickle.dump(String, open(network_folder + tax + "_networks_string.v11.0.pckl", "wb"))
         #String = pickle.load(open("./prevotella_melaninogenica/" + tax + "_networks_string.v10.5.pckl", "rb"))
         #net = String['nets']['experimental'].todense()
         #print (tax,  net.shape[0], np.count_nonzero(net)/2)
+    '''
 
 if __name__ == "__main__":
     #tax_ids = ['199310', '155864', '511145', '316407', '316385', '220664', '208964', '553174']
