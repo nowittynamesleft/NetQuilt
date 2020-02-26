@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 import os.path
 # import scipy.io as sio
-from scipy import stats
+from scipy import stats, sparse
 
 from deepNF import build_MDA, build_AE, build_denoising_AE, build_denoising_MDA
 from validation import cross_validation, cross_validation_nn, temporal_holdout, output_projection_files, leave_one_species_out_val_nn, train_and_predict_all_orgs
@@ -15,6 +15,7 @@ from keras.optimizers import SGD
 from keras.callbacks import EarlyStopping
 
 from sklearn.preprocessing import minmax_scale
+#from sklearn.preprocessing import maxabs_scale
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 
@@ -39,6 +40,14 @@ LR = 0.01
 # example for running autoencoder on human and testing on human on the goids chosen from model-org go ids: python multispecies.py ../../data/temporal_holdout/long_time_test_human_MFannotation_data.pkl molecular_function human_only_temporal_holdout_impl_test /mnt/ceph/users/vgligorijevic/PFL/data/string/ 9606 1.0 
 
 # python multispecies.py annot_fname ont model_name data_folder tax_ids alpha test_go_id_fname test_tax_id
+
+'''
+def minmax_scale_sparse(X):
+    data = np.asarray(X.data/np.take(X.max(axis=0).todense(), X.indices)).squeeze()
+    X_scaled = sparse.csr_matrix((data, X.indices, X.indptr))
+    return X_scaled
+'''
+
 def aupr(label, score):
     """Computing real AUPR"""
     label = label.flatten()
@@ -223,139 +232,6 @@ def remove_missing_annot_prots(annot_prots, Y, mapping_dict):
     return new_annot_prots, Y
 
 
-def temporal_holdout_main(annot_fname, model_name, data_folder, tax_ids, alpha, mapping_fname, results_path='./results/test_results/'):
-    #  Load annotations
-    Annot = pickle.load(open(annot_fname, 'rb'))
-    # selected goids
-    test_funcs = Annot['func_inds']
-    train_inds = Annot['train_prot_inds']
-    valid_inds = Annot['valid_prot_inds']
-    test_inds = Annot['test_prot_inds']
-    Y_train = np.asarray(Annot['train_annots'])[:, test_funcs]
-    Y_valid = np.asarray(Annot['valid_annots'])[:, test_funcs]
-    Y_test = np.asarray(Annot['test_annots'])[:, test_funcs]
-
-    mapping_dict = get_mapping_dict(mapping_fname)
-    print('Y_train before: ', Y_train.shape)
-    annot_prots_train = Annot['prot_IDs'][train_inds]
-    annot_prots_train, Y_train = remove_missing_annot_prots(annot_prots_train, Y_train, mapping_dict)
-    print('Y_train after: ', Y_train.shape)
-
-    print('Y_valid before: ', Y_valid.shape)
-    annot_prots_valid = Annot['prot_IDs'][valid_inds]
-    annot_prots_valid, Y_valid = remove_missing_annot_prots(annot_prots_valid, Y_valid, mapping_dict)
-    print('Y_valid after: ', Y_valid.shape)
-
-    print('Y_test before: ', Y_test.shape)
-    annot_prots_test = Annot['prot_IDs'][test_inds]
-    annot_prots_test, Y_test = remove_missing_annot_prots(annot_prots_test, Y_test, mapping_dict)
-    print('Y_test after: ', Y_test.shape)
-    goterms = Annot['GO_IDs'][test_funcs]
-
-    use_orig_feats = False
-    if use_orig_feats:
-        # creating a block matrix
-        print ("### Creating the block matrix...")
-        string_prots = []
-        X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
-        for ii in range(0, len(tax_ids)):
-            #Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-            Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb"))
-            X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
-            string_prots += Net['prot_IDs']
-            for jj in range(ii + 1, len(tax_ids)):
-                R = pickle.load(open(data_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
-                R = minmax_scale(np.asarray(R.todense()))
-                X[ii][jj] = R
-                X[jj][ii] = R.T
-        X = np.asarray(np.bmat(X))
-        print ("### Shape of the block matrix: ", X.shape)
-        X = minmax_scale(X)
-
-    else:
-        #  Load networks/features
-        feature_fname = results_path + model_name.split('-')[0] + '_features.pckl'
-        if os.path.isfile(feature_fname):
-            print('### Found features in ' + feature_fname + ' Loading it.')
-            String = pickle.load(open(feature_fname, 'rb'))
-            string_prots = String['prot_IDs']
-            X = String['features']
-        else:
-            '''
-            The following code assumes these things:
-                - You have the random walk with restart profiles of the string networks already in a pickle file
-                - You have the isorank 'block' matrix (rectangle matrix for interspecies connections) (pretty sure 'block' is a misnomer)
-            '''
-            # creating a block matrix
-            print ("### Creating the block matrix...")
-            string_prots = []
-            X = [[0]*len(tax_ids) for i in range(len(tax_ids))]
-            for ii in range(0, len(tax_ids)):
-                #Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-                Net = pickle.load(open(data_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb"))
-                X[ii][ii] = minmax_scale(np.asarray(Net['net'].todense()))
-                string_prots += Net['prot_IDs']
-                for jj in range(ii + 1, len(tax_ids)):
-                    R = pickle.load(open(data_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
-                    R = minmax_scale(np.asarray(R.todense()))
-                    X[ii][jj] = R
-                    X[jj][ii] = R.T
-            X = np.asarray(np.bmat(X))
-            print ("### Shape of the block matrix: ", X.shape)
-
-            # X = minmax_scale(String['net'].todense())
-            # string_prots = String['prot_IDs'
-
-            '''
-            Builds and trains the autoencoder and scales the features.
-            '''
-            input_dims = [X.shape[1]]
-            # encode_dims = [2000, 1000, 2000]
-            encode_dims = [1000]
-            model, history = build_model(X, input_dims, encode_dims, mtype='ae')
-            export_history(history, model_name=model_name, kwrd='AE', results_path=results_path)
-
-            mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
-
-            X = minmax_scale(mid_model.predict(X))
-            String = {}
-            String['features'] = X
-            String['prot_IDs'] = string_prots
-            pickle.dump(String, open(feature_fname, 'wb'))
-
-    # get common indices annotations
-    annot_idx_train, string_idx_train = get_common_indices(annot_prots_train, string_prots)
-    annot_idx_valid, string_idx_valid = get_common_indices(annot_prots_valid, string_prots)
-    annot_idx_test, string_idx_test = get_common_indices(annot_prots_test, string_prots)
-
-    # aligned data
-    X_train = X[string_idx_train]
-    Y_train = Y_train[annot_idx_train]
-
-    X_valid = X[string_idx_valid]
-    Y_valid = Y_valid[annot_idx_valid]
-
-    X_test = X[string_idx_test]
-    Y_test = Y_test[annot_idx_test]
-    
-    perf, y_scores = temporal_holdout(X_train, Y_train, X_valid, Y_valid, X_test, Y_test)
-
-    print('aupr[micro], aupr[macro], F_max, accuracy\n')
-    avg_micro = 0.0
-    for ii in range(0, len(perf['F1'])):
-        print('%0.5f %0.5f %0.5f %0.5f' % (perf['pr_micro'][ii], perf['pr_macro'][ii], perf['F1'][ii], perf['acc'][ii]))
-        avg_micro += perf['pr_micro'][ii]
-    avg_micro /= len(perf['F1'])
-    print ("### Average (over trials): m-AUPR = %0.3f" % (avg_micro))
-    print
-    use_nn = False
-    if use_nn:
-        val_type = 'nn_th'
-    else:
-        val_type = 'svm_th'
-    pickle.dump(y_score_trials, open(results_path + model_name + "_goterm_" + val_type + "_perf.pckl", "wb"))
-
-
 def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, alpha, test_goid_fname, results_path='./results/test_results/', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=True, use_nn=True, arch_set=None):
     # need to make: dictionary of species taxa ids to species inds in the X matrix
     #  Load annotations
@@ -413,21 +289,27 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
     # X = X[model_org_idx]
     
     spec_to_spec_inds = {}
+    spec_to_spec_annot_inds = {}
     cum_num_prots_in_string = 0
+    cum_num_prots_in_annot = 0
     tot_prots = []
 
     # get common indices annotations
     annot_idx, string_idx = get_common_indices(annot_prots, string_prots) # what is string_idx? it is the index (of the string_prots list) of the common proteins between annot_prots and string_prots
     net_inds = []
     net_prots = []
+    print('Shapes of x and y before for loop:')
+    print(X.shape)
+    print(Y.shape)
 
     for i in range(0, len(tax_ids)):
         # for every taxon, get the species string prot ids 
         tax_id = tax_ids[i]
         species_prots = species_string_prots[tax_id]
-        _, species_idx = get_common_indices(annot_prots, species_prots) # then get the species' protein indices that are common between the species' string prot ids and the annot prots
+        curr_species_annot_idx, species_idx = get_common_indices(annot_prots, species_prots) # then get the species' protein indices that are common between the species' string prot ids and the annot prots
         #spec_to_spec_inds[tax_id] = np.arange(cum_num_prots_in_annots, cum_num_prots_in_annots + len(species_idx))
         spec_to_spec_inds[tax_id] = np.array(species_idx) + cum_num_prots_in_string # now, set the species to species inds dictionary with the taxon id as the key, to the species indices, plus the cumulative number of proteins in the annotations
+        spec_to_spec_annot_inds[tax_id] = curr_species_annot_idx
         # where can this go wrong? let's say that there are two proteins for two species.
         # string indx: prot_1a, prot_1b, prot_2a, prot_2b.
         # let's say that the annot list includes these proteins at indices 3, 5, 10, 11
@@ -454,9 +336,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
         print('net_prots != string_prots. Exiting.')
         exit()
     try:
-        #string_idx = sorted(string_idx)
-        #net_inds = sorted(net_inds)
-        assert string_idx == net_inds
+        assert sorted(string_idx) == sorted(net_inds)
     except AssertionError:
         print('String_idx')
         print(string_idx[:10])
@@ -474,12 +354,39 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
         exit()
     print('Passed the test of string_idx being the same as net_inds!!')
     
+    string_idx = np.array(string_idx)
+    annot_idx = np.array(annot_idx)
     # aligned data
-    X = X[string_idx]
-    Y = Y[annot_idx]
-    print('Y.shape')
+    print('Shapes of x and y after for loop:')
+    print(X.shape)
     print(Y.shape)
-    print('Test Y: ' + str(Y[spec_to_spec_inds[test_tax_id]]))
+    test_annot_idx = spec_to_spec_annot_inds[test_tax_id]
+    test_mask = np.array(annot_idx == test_annot_idx)
+    test_string_idx = string_idx[test_mask]
+
+    train_mask = np.array(annot_idx != test_annot_idx)
+    train_string_idx = string_idx[train_mask]
+    train_annot_idx = annot_idx[annot_idx != test_annot_idx]
+
+    X_train = X[train_string_idx]
+    Y_train = Y[train_annot_idx]
+
+    X_test = X[test_string_idx]
+    Y_test = Y[test_annot_idx]
+
+    print('Y_train.shape')
+    print(Y_train.shape)
+    print('Y_test.shape')
+    print(Y_test.shape)
+    print('Test Y: ')
+    print(Y_test)
+    print('Num nonzero in train y:')
+    print(np.count_nonzero(Y_train))
+    print('Num nonzero in test y:')
+    print(np.count_nonzero(Y_test))
+    print('exit now')
+    exit()
+    
 
     print('Assertion: all string ')
     try:
@@ -555,17 +462,26 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
         print('number of proteins in this tax_id: ' + str(len(species_string_prots[tax_ids[ii]])))
 
     X = np.zeros((cum_num_prot_ids[-1], cum_num_prot_ids[-1]))
+    #X = sparse.csr_matrix((cum_num_prot_ids[-1], cum_num_prot_ids[-1]))
     print('Filling up X matrix')
     for ii in range(0, len(tax_ids)):
         Net = Nets[ii]
         X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(Net['net'].todense()))
+        print('Minmax scaled rwr mat')
+        #X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = np.asarray(minmax_scale_sparse(Net['net']))
     for ii in range(0, len(tax_ids)):
         for jj in range(ii + 1, len(tax_ids)):
             print('Loading ' + data_folder + block_matrix_folder  + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
             R = pickle.load(open(data_folder + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
+            print('Loaded isorank mat')
             R = minmax_scale(np.asarray(R.todense()))
+            print('Minmax scaled isorank mat')
+            #R = np.asarray(minmax_scale_sparse(R))
             X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[jj]:cum_num_prot_ids[jj+1]] = R
             X[cum_num_prot_ids[jj]:cum_num_prot_ids[jj+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = R.T
+            print('Added mat to X')
+    sparsity = 1.0 - ( np.count_nonzero(X) / float(X.size))
+    print ("### Sparsity of the block matrix: ", str(sparsity))
     print ("### Shape of the block matrix: ", X.shape)
     print('Length of string_prots')
     print(len(string_prots))
@@ -604,10 +520,12 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     pred_file = train_and_predict_all_orgs(X, Y, X_to_pred, string_prots, test_goids, model_name, ont, arch_set=arch_set)
     pickle.dump(pred_file, open(results_path + model_name + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
 
-def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False, num_hyperparam_sets=None, arch_set=None):
+
+def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
+    #Y = np.asarray(Annot['annot'][ont])
     annot_prots = Annot['prot_IDs']
     goterms = Annot['go_IDs'][ont]
 
@@ -686,6 +604,13 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     Y = Y[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
+    return X, Y, validation_net_prots, test_goids
+
+
+def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False, num_hyperparam_sets=None, arch_set=None):
+    X, Y, validation_net_prots, test_goids = process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_matrix_folder, network_folder=network_folder, use_orig_feats=use_orig_feats, use_nn=use_nn)
+    print("Saving X and Y matrices")
+
     #output_projection_files(X, Y, model_name, ont, list(test_goids))
     # 5 fold cross val
     if use_nn:
@@ -695,11 +620,6 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
     else:
         #perf, y_score_trials, y_score_pred = cross_validation(X, Y, n_trials=10, X_pred=X_pred_spec)
         perf, y_score_trials, y_score_pred = cross_validation(X, Y, n_trials=5, X_pred=None)
-
-    '''
-    Pred['prot_IDs'] = pred_spec_prots
-    Pred['pred_scores'] = y_score_pred
-    '''
 
     print('aupr[micro], aupr[macro], F_max, accuracy\n')
     avg_micro = 0.0
