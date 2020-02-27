@@ -532,6 +532,8 @@ def train_test(X, y, train_idx, test_idx, ker='rbf'):
     return perf_trial, y_scores
 
 
+
+
 def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
@@ -675,19 +677,6 @@ def cross_validation(X, y, n_trials=5, ker='rbf', X_pred=None):
     return perf, y_score_trials, y_score_pred
 
 
-def build_nn_classifier(input_dim, output_dim, hidden_dim):
-    input_layer = Input(shape=(input_dim,))
-    hidden_layer = Dense(hidden_dim, activation='sigmoid')(input_layer)
-    output_layer = Dense(output_dim, activation='sigmoid')(hidden_layer)
-    model = Model(input=input_layer, output=output_layer)
-
-    sgd = SGD(lr=0.01, momentum=0.9, decay=0.0, nesterov=False)
-    model.compile(optimizer=sgd, loss='binary_crossentropy')
-    print(model.summary())
-    
-    return model 
-
-
 def build_maxout_nn_classifier_wan(input_dim, output_dim, maxout_units): # this is all the hyperparameters of Wan et al.
     optim = Adagrad(lr=0.05)
     '''
@@ -787,8 +776,12 @@ def create_param_dict_string(params):
    
 
 #def build_and_fit_nn_classifier(X_train, y_train, X_val, y_val, hidden_dim_1=500, hidden_dim_2=0, hidden_dim_3=800, hidden_dim_4=800, maxout_units=3, activation='sigmoid', dropout=0.0, learning_rate=0.01, batch_size=64, num_epochs=200, exp_name='no_name'):
-def build_and_fit_nn_classifier(X, y, params, verbose=0):
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.1, random_state=1)
+def build_and_fit_nn_classifier(X, y, params, X_val=None, y_val=None, verbose=0):
+    if X_val is None:
+        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.1)
+    else:
+        X_train = X
+        y_train = y
     print(X_train[0][X_train[0] != 0])
     K.clear_session()
     input_layer = Input(shape=(X_train.shape[1],))
@@ -1010,6 +1003,138 @@ def train_and_predict_all_orgs(X, y, X_to_pred, pred_protein_names, go_terms, ke
     return pred_file
 
 
+def remove_zero_annot_rows_w_labels(X, y, protein_names):
+    print("before remove_zero_annot_rows")
+    print(X.shape)
+    X, _ = remove_zero_annot_rows(X, y)
+    protein_names, y = remove_zero_annot_rows(np.array(protein_names), y)
+    return X, y, protein_names
+
+
+def one_spec_cross_val(X_test_species, y_test_species, test_species_prots, 
+        X_rest, Y_rest, rest_prot_names, go_terms, keyword, ont, 
+        n_trials=5, num_hyperparam_sets=25, arch_set=None):
+    """Perform model selection via 5-fold cross validation"""
+    # filter samples with no annotations
+    X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
+            y_test_species, test_species_prots)
+    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_test_species, y_test_species, 
+            test_species_prots)
+
+    print("Shapes of X and Y matrices")
+    print(X_test_species.shape)
+    print(X_rest.shape)
+    print(y_test_species.shape)
+    print(y_rest.shape)
+    # performance measures
+    pr_micro = []
+    pr_macro = []
+    F1 = []
+    acc = []
+
+    # shuffle and split training and test sets
+    trials = ShuffleSplit(n_splits=n_trials, test_size=0.2, random_state=1)
+    ss = trials.split(X_test_species)
+    trial_splits = []
+    for train_idx, test_idx in ss:
+        trial_splits.append((train_idx, test_idx))
+
+    y_score_trials = np.zeros((y_test_species.shape[1], n_trials), dtype=np.float)
+    it = 0
+    pred_file = {'prot_IDs': test_species_prots,
+                 'GO_IDs': go_terms,
+                 'trial_preds': np.zeros((n_trials, len(test_species_prots), len(go_terms))),
+                 'trial_splits': trial_splits,
+                 'true_labels': y_test_species
+                 }
+    for jj in range(0, n_trials):
+        train_idx = trial_splits[jj][0]
+        test_idx = trial_splits[jj][1]
+        it += 1
+        X_test_species_train, X_test_species_val, y_test_species_train, y_test_species_val = train_test_split(
+                X_test_species[train_idx], y_test_species[train_idx], test_size=0.1) # create validation set from species to be tested on
+        X_train = np.concatenate((X_test_species_train, X_rest), axis=0)
+        X_test = X_test_species[test_idx]
+        y_train = np.concatenate((y_test_species_train, y_rest), axis=0)
+        y_test = y_test_species[test_idx]
+        print(X_train.shape)
+        print(X_test.shape)
+        print(y_train.shape)
+        print(y_test.shape)
+        print ("### [Trial %d] Perfom cross validation...." % (it))
+        print ("Train samples=%d; #Validation samples=%d #Test samples=%d" % (y_train.shape[0], y_test.shape[0], y_test_species_val.shape[0]))
+
+        exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-fold-' + str(jj)
+        if arch_set == 'bac':
+            # for bacteria
+            print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
+            params = BAC_PARAMS
+        elif arch_set == 'euk':
+            # for eukaryotes
+            print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
+            params = EUK_PARAMS
+        else:
+            print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
+
+        exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
+        '''
+        # hyperparam search
+        params['in_shape'] = X_train.shape[1]
+        params['out_shape'] = y_train.shape[1]
+        keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
+        clf = RandomizedSearchCV(keras_model, params, cv=5, n_iter=num_hyperparam_sets, scoring='average_precision')
+        search_result = clf.fit(X_train, y_train)
+        # summarize results
+        means = search_result.cv_results_['mean_test_score']
+        stds = search_result.cv_results_['std_test_score']
+        params = search_result.cv_results_['params']
+        for mean, stdev, param in zip(means, stds, params):
+                print("%f (%f) with: %r" % (mean, stdev, param))
+        print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
+        best_params = search_result.best_params_
+        print('Best model parameters for this trial:')
+        print(best_params)
+        print ("### Using full training data...")
+        with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
+            pickle.dump(search_result, search_result_file)
+        del best_params['in_shape']
+        del best_params['out_shape']
+        '''
+
+        # no hyperparam search
+        best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+        best_params['exp_name'] = exp_name
+        history, model = build_and_fit_nn_classifier(X_train, y_train, best_params, X_val=X_test_species_val, y_val=y_test_species_val, verbose=1)
+
+        y_score = np.zeros(y_test.shape, dtype=float)
+        y_pred = np.zeros_like(y_test)
+
+        # Compute performance on test set
+        y_score = model.predict(X_test_species[test_idx])
+        pred_file['trial_preds'][jj, :, :] = model.predict(X_test_species)
+        y_pred = y_score > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
+        perf_trial = evaluate_performance(y_test, y_score, y_pred)
+        for go_id in range(0, y_pred.shape[1]):
+            y_score_trials[go_id, jj] = perf_trial[go_id]
+        pr_micro.append(perf_trial['pr_micro'])
+        pr_macro.append(perf_trial['pr_macro'])
+        F1.append(perf_trial['F1'])
+        acc.append(perf_trial['acc'])
+        print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
+        print
+        print
+
+
+    perf = dict()
+    perf['pr_micro'] = pr_micro
+    perf['pr_macro'] = pr_macro
+    perf['F1'] = F1
+    perf['acc'] = acc
+
+    return perf, y_score_trials, pred_file
+     
+
+
 def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None, num_hyperparam_sets=25, arch_set=None):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
@@ -1111,21 +1236,13 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
         pr_macro.append(perf_trial['pr_macro'])
         F1.append(perf_trial['F1'])
         acc.append(perf_trial['acc'])
-        print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
-        print
-        print
-        if X_pred is not None:
-            print ("### Predicting functions...")
-            y_score_pred += model.predict(X_pred)
-
+        print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f\n\n" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
 
     perf = dict()
     perf['pr_micro'] = pr_micro
     perf['pr_macro'] = pr_macro
     perf['F1'] = F1
     perf['acc'] = acc
-    #y_score_pred /= n_trials
-    y_score_pred = None
 
-    return perf, y_score_trials, y_score_pred, pred_file
+    return perf, y_score_trials, pred_file
 
