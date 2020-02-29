@@ -531,17 +531,39 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
     annot_prots = Annot['prot_IDs']
     goterms = Annot['go_IDs'][ont]
     if test_annot_fname is not None:
+        # need to remove all of the test annotations from Y_rest
         test_Annot = pickle.load(open(test_annot_fname, 'rb'))
-        Y_test_species = np.asarray(Annot['annot'][ont].todense())
+        Y_test_species = np.asarray(test_Annot['annot'][ont].todense())
         test_species_annot_prots = test_Annot['prot_IDs']
+        print('Y_test_species shape')
+        print(Y_test_species.shape)
+        print('test_species_annot_prots length:')
+        print(len(test_species_annot_prots))
         test_goterms = test_Annot['go_IDs'][ont]
         print('Removing prots from annot prots that are already in test_species_annot_prots')
+        print('Before Y shape[0]:')
+        print(Y.shape[0])
         print('Before annot_prots len:')
         print(len(annot_prots))
-        annot_prots = [prot for prot in annot_prots if prot not in test_species_annot_prots]
+        kept_annot_prots = []
+        annot_prot_keep_inds = []
+        test_spec_prot_set = set(test_species_annot_prots)
+        for i, prot in enumerate(annot_prots):
+            if prot not in test_spec_prot_set:
+                annot_prot_keep_inds.append(i)
+                kept_annot_prots.append(prot)
+        annot_prot_keep_inds = np.array(annot_prot_keep_inds)
+        Y = Y[annot_prot_keep_inds,:]
+        annot_prots = kept_annot_prots
+        print('Intersection should be none:')
+        print(test_spec_prot_set.intersection(annot_prots))
         print('After annot_prots len:')
         print(len(annot_prots))
+        print('After Y shape[0]:')
+        print(Y.shape[0])
+        assert len(test_species_annot_prots) == Y_test_species.shape[0]
 
+    assert len(annot_prots) == Y.shape[0]
     if use_orig_feats:
         print('Using orig features')
         X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
@@ -620,7 +642,8 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
     if test_annot_fname is not None:
-        Y_test_species = Y_test_species[:, test_funcs]
+        test_species_test_funcs = [test_goterms.index(goid) for goid in test_goids]
+        Y_test_species = Y_test_species[:, test_species_test_funcs]
         return X, Y, aligned_net_prots, test_goids, X_test_species, Y_test_species, test_species_aligned_net_prots
     else:
         return X, Y, aligned_net_prots, test_goids
@@ -629,7 +652,7 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
 def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=None, 
         results_path='./results/test_results', block_matrix_folder='block_matrix_files/', 
         network_folder='network_files/', use_orig_feats=False, use_nn=False, 
-        num_hyperparam_sets=None, arch_set=None):
+        num_hyperparam_sets=None, arch_set=None, n_trials=5):
 
     if test_annot_fname is None:
         X, Y, aligned_net_prots, test_goids = process_and_align_matrices(annot_fname,
@@ -644,7 +667,8 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
             results_path=results_path, block_matrix_folder=block_matrix_folder, 
             network_folder=network_folder, use_orig_feats=use_orig_feats, 
             use_nn=use_nn, test_annot_fname=test_annot_fname)
-    #print("Saving X and Y matrices") # TODO
+    #print("Saving X and Y matrices") # TODO so I can use a DataGenerator in order to train the maxout nns without loading whole dataset in memory
+    # But honestly, not that bad for now
     print(test_goids)
 
     #output_projection_files(X, Y, model_name, ont, list(test_goids))
@@ -653,19 +677,17 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
         if test_annot_fname is not None:
             perf, y_score_trials, pred_file = one_spec_cross_val(X_test_species, 
                     Y_test_species, test_species_aligned_net_prots, X_rest, Y_rest,
-                    rest_prot_names, test_goids, model_name, ont, n_trials=5,
+                    rest_prot_names, test_goids, model_name, ont, n_trials=n_trials,
                     num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set)
-            pickle.dump(pred_file, 
-                open(results_path
-                    + model_name.split('.')[0] + '_one_spec_cv_use_nn_' 
+            pickle.dump(pred_file, open(results_path
+                    + model_name + '_one_spec_cv_use_nn_' 
                     + ont + '_pred_file.pckl', 'wb'))
         else:
             perf, y_score_trials, pred_file = cross_validation_nn(X, Y, 
-                aligned_net_prots, test_goids, model_name, ont, n_trials=5, 
+                aligned_net_prots, test_goids, model_name, ont, n_trials=n_trials, 
                 X_pred=None, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set)
-            pickle.dump(pred_file, 
-                open(results_path
-                    + model_name.split('.')[0] + '_cv_use_nn_' 
+            pickle.dump(pred_file, open(results_path
+                    + model_name + '_cv_use_nn_' 
                     + ont + '_pred_file.pckl', 'wb'))
     else:
         perf, y_score_trials, y_score_pred = cross_validation(X, Y, 
@@ -707,8 +729,9 @@ if __name__ == "__main__":
     parser.add_argument('--test_tax_id', type=str, default=None, help="Taxonomy ID to test on. LOSO valid type only.")
     parser.add_argument('--use_orig_features', help="Use ISORANK S matrix as features for func pred instead of autoencoder features", action='store_true')
     parser.add_argument('--use_nn_val', help="Use neural net instead of svm for func pred validation", action='store_true')
-    parser.add_argument('--num_hyperparam_sets', type=float, help="For using neural networks on original features, gives number of models to train in the hyperparameter search.")
+    parser.add_argument('--num_hyperparam_sets', type=int, help="For using neural networks on original features, gives number of models to train in the hyperparameter search.")
     parser.add_argument('--arch_set', type=str, help="What architecture hyperparam sets to search through for using neural networks on original features (accepted values are for bacteria ('bac') or eukaryotes ('euk'))")
+    parser.add_argument('--n_trials', type=int, default=5, help="Number of trials for cv")
     args = parser.parse_args() 
 
     results_path = args.results_path
@@ -724,6 +747,7 @@ if __name__ == "__main__":
     alpha = args.alpha
     model_name = model_name + '_alpha_' + str(alpha)
     val = args.valid_type
+    n_trials = args.n_trials
 
     # tax ids
     tax_ids = tax_ids.split(',')
@@ -736,9 +760,10 @@ if __name__ == "__main__":
 
     net_folder = 'network_files_no_add/'
     block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
+    print(args)
 
     if val == 'cv':
-        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set)
+        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials)
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_blast_init_test_files/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files_no_add/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_2/')

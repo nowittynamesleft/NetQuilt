@@ -5,6 +5,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from sklearn.model_selection import ShuffleSplit, KFold, RandomizedSearchCV, train_test_split
 from sklearn.metrics.pairwise import rbf_kernel, linear_kernel, cosine_similarity
 from sklearn.utils import resample
+from sklearn.metrics.scorer import make_scorer
 from keras.models import Model
 from keras.layers import Input, Dense, maximum, BatchNormalization, Dropout
 from keras.optimizers import SGD, Adagrad
@@ -22,20 +23,47 @@ import datetime
 import os
 
 BAC_PARAMS = {'hidden_dim_1': [500],
+                    'hidden_dim_2': [0, 300, 600],
+                    'hidden_dim_3': [0, 800],
+                    'hidden_dim_4': [800, 1000],
+                    'maxout_units': [3],
+                    'dropout': [0.2, 0.4],
+                    'epochs': [50, 75, 100],
+                    #'epochs': [25],
+                    #'epochs': [1], # test
+                    'learning_rate': [0.01],
+                    'activation': ['relu'],
+                    'batch_size': [16, 32],
+                    #'exp_name': [exp_name]
+}
+
+BAC_PARAMS_NO_SEARCH = {'hidden_dim_1': [500],
                     'hidden_dim_2': [0],
                     'hidden_dim_3': [800],
                     'hidden_dim_4': [800],
                     'maxout_units': [3],
                     'dropout': [0.2],
-                    'epochs': [250],
+                    'epochs': [100],
+                    #'epochs': [25],
                     #'epochs': [1], # test
                     'learning_rate': [0.01],
                     'activation': ['relu'],
                     'batch_size': [16],
                     #'exp_name': [exp_name]
 }
-
 EUK_PARAMS = {'hidden_dim_1': [500],
+            'hidden_dim_2': [0], 
+            'hidden_dim_3': [800],
+            'hidden_dim_4': [800],
+            'maxout_units': [4], 
+            'dropout': [0.2],
+            'epochs': [300],
+            'learning_rate': [0.01],
+            'activation': ['relu'],
+            'batch_size': [32],
+}
+
+EUK_PARAMS_NO_SEARCH = {'hidden_dim_1': [500],
             'hidden_dim_2': [0], 
             'hidden_dim_3': [800],
             'hidden_dim_4': [800],
@@ -59,7 +87,7 @@ def kernel_func(X, Y=None, param=0):
 def trapezoidal_integral_approx(t, y):
     return math_ops.reduce_sum(
             math_ops.multiply(t[1:] - t[:-1],
-                              (y[:-1] + y[1:]) / 2.), 
+                (y[:-1] + y[1:]) / 2.), 
             name='trapezoidal_integral_approx')
 
 
@@ -81,14 +109,8 @@ def real_AUPR(label, score):
     y = np.divide(TP, PP)  # precision
 
     pr = np.trapz(y, x)
-    f = np.divide(2*x*y, (x + y))
-    idx = np.where((x + y) != 0)[0]
-    if len(idx) != 0:
-        f = np.max(f[idx])
-    else:
-        f = 0.0
 
-    return pr, f
+    return pr
 
 
 def real_AUPR_tensors(label, score):
@@ -116,6 +138,52 @@ def real_AUPR_tensors(label, score):
     return pr
 
 
+def real_AUPR_tensors_packed(packed):
+    """Computing AUPR for use in keras metrics argument for fit function"""
+    label = packed[0]
+    score = packed[1]
+    print(label)
+    print(score)
+    label = tf.reshape(label, [-1])
+    score = tf.reshape(score, [-1])
+
+    order = tf.argsort(score)[::-1]
+    label = tf.gather(label, order)
+
+    P = tf.dtypes.cast(tf.count_nonzero(label), tf.float32)
+    # N = len(label) - P
+
+    TP = tf.cumsum(label)
+    PP = tf.dtypes.cast(tf.range(1, tf.shape(label)[0]+1), tf.float32)  # python
+
+    x = tf.divide(TP, P)  # recall
+    y = tf.divide(TP, PP)  # precision
+
+    pr = trapezoidal_integral_approx(x, y)
+    #f = tf.divide(2*x*y, (x + y))
+    #idx = tf.where((x + y) != 0)[0]
+    #f = tf.cond(tf.not_equal(tf.shape(idx)[0], tf.constant(0)), lambda: tf.reduce_max(tf.gather(f, idx)), lambda: tf.constant(0.0))
+
+    return pr
+
+
+def real_AUPR_macro_tensors(label, score):
+    """Computing AUPR for use in keras metrics argument for fit function"""
+    #label = tf.reshape(label, [-1])
+    #score = tf.reshape(score, [-1])
+
+
+    #f = tf.divide(2*x*y, (x + y))
+    #idx = tf.where((x + y) != 0)[0]
+    #f = tf.cond(tf.not_equal(tf.shape(idx)[0], tf.constant(0)), lambda: tf.reduce_max(tf.gather(f, idx)), lambda: tf.constant(0.0))
+    label_vecs = tf.split(label, score.shape[1], axis=1)
+    score_vecs = tf.split(score, score.shape[1], axis=1)
+    pr_vals = tf.map_fn(real_AUPR_tensors_packed, (label_vecs, score_vecs))
+    pr = tf.reduce_mean(pr_vals)
+
+    return pr
+
+
 def ml_split(y):
     """Split annotations"""
     kf = KFold(n_splits=5, shuffle=True)
@@ -135,14 +203,14 @@ def evaluate_performance(y_test, y_score, y_pred):
     perf["pr_macro"] = 0.0
     n = 0
     for i in range(n_classes):
-        perf[i], _ = real_AUPR(y_test[:, i], y_score[:, i])
+        perf[i] = real_AUPR(y_test[:, i], y_score[:, i])
         if sum(y_test[:, i]) > 0:
             n += 1
             perf["pr_macro"] += perf[i]
     perf["pr_macro"] /= n
 
     # Compute micro-averaged AUPR
-    perf["pr_micro"], _ = real_AUPR(y_test, y_score)
+    perf["pr_micro"] = real_AUPR(y_test, y_score)
 
     # Computes accuracy
     perf['acc'] = accuracy_score(y_test, y_pred)
@@ -838,11 +906,12 @@ def build_and_fit_nn_classifier(X, y, params, X_val=None, y_val=None, verbose=0)
     model.summary()
    
     early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=30)
+    #early = EarlyStopping(monitor='val_loss', mode='min', verbose=1, min_delta=0, patience=30)
     #early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=5)
     history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose, callbacks=[early])
     #history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose)
     y_pred_val = model.predict(X_val)
-    micro_val, _ = real_AUPR(y_val, y_pred_val)
+    micro_val = real_AUPR(y_val, y_pred_val)
     print('Micro aupr of validation set')
     print(micro_val)
     plt.plot(history.history['loss'])
@@ -1012,19 +1081,23 @@ def remove_zero_annot_rows_w_labels(X, y, protein_names):
 
 
 def one_spec_cross_val(X_test_species, y_test_species, test_species_prots, 
-        X_rest, Y_rest, rest_prot_names, go_terms, keyword, ont, 
+        X_rest, y_rest, rest_prot_names, go_terms, keyword, ont, 
         n_trials=5, num_hyperparam_sets=25, arch_set=None):
     """Perform model selection via 5-fold cross validation"""
     # filter samples with no annotations
     X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
             y_test_species, test_species_prots)
-    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_test_species, y_test_species, 
-            test_species_prots)
+    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_rest, y_rest, 
+            rest_prot_names)
 
     print("Shapes of X and Y matrices")
+    print('X_test_species')
     print(X_test_species.shape)
+    print('X_rest')
     print(X_rest.shape)
+    print('y_test_species')
     print(y_test_species.shape)
+    print('y_rest')
     print(y_rest.shape)
     # performance measures
     pr_micro = []
@@ -1045,7 +1118,8 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
                  'GO_IDs': go_terms,
                  'trial_preds': np.zeros((n_trials, len(test_species_prots), len(go_terms))),
                  'trial_splits': trial_splits,
-                 'true_labels': y_test_species
+                 'true_labels': y_test_species,
+                 'trial_hyperparams': []
                  }
     for jj in range(0, n_trials):
         train_idx = trial_splits[jj][0]
@@ -1062,47 +1136,51 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
         print(y_train.shape)
         print(y_test.shape)
         print ("### [Trial %d] Perfom cross validation...." % (it))
-        print ("Train samples=%d; #Validation samples=%d #Test samples=%d" % (y_train.shape[0], y_test.shape[0], y_test_species_val.shape[0]))
+        print ("Train samples=%d; #Validation samples=%d #Test samples=%d" % (y_train.shape[0], y_test_species_val.shape[0], y_test.shape[0]))
 
         exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-fold-' + str(jj)
         if arch_set == 'bac':
             # for bacteria
             print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
             params = BAC_PARAMS
+            if num_hyperparam_sets == 1:
+                params = BAC_PARAMS_NO_SEARCH
         elif arch_set == 'euk':
             # for eukaryotes
             print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
             params = EUK_PARAMS
+            if num_hyperparam_sets == 1:
+                params = EUK_PARAMS_NO_SEARCH
         else:
             print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
         exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
-        '''
-        # hyperparam search
-        params['in_shape'] = X_train.shape[1]
-        params['out_shape'] = y_train.shape[1]
-        keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-        clf = RandomizedSearchCV(keras_model, params, cv=5, n_iter=num_hyperparam_sets, scoring='average_precision')
-        search_result = clf.fit(X_train, y_train)
-        # summarize results
-        means = search_result.cv_results_['mean_test_score']
-        stds = search_result.cv_results_['std_test_score']
-        params = search_result.cv_results_['params']
-        for mean, stdev, param in zip(means, stds, params):
-                print("%f (%f) with: %r" % (mean, stdev, param))
-        print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
-        best_params = search_result.best_params_
-        print('Best model parameters for this trial:')
-        print(best_params)
-        print ("### Using full training data...")
-        with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
-            pickle.dump(search_result, search_result_file)
-        del best_params['in_shape']
-        del best_params['out_shape']
-        '''
-
-        # no hyperparam search
-        best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+        if num_hyperparam_sets > 1:
+            # hyperparam search
+            print('number of hyperparam sets to train for this trial:' + str(num_hyperparam_sets))
+            params['in_shape'] = [X_train.shape[1]]
+            params['out_shape'] = [y_train.shape[1]]
+            keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
+            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True))
+            search_result = clf.fit(X_train, y_train)
+            # summarize results
+            means = search_result.cv_results_['mean_test_score']
+            stds = search_result.cv_results_['std_test_score']
+            params = search_result.cv_results_['params']
+            for mean, stdev, param in zip(means, stds, params):
+                    print("%f (%f) with: %r" % (mean, stdev, param))
+            print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
+            best_params = search_result.best_params_
+            print('Best model parameters for this trial:')
+            print(best_params)
+            print ("### Using full training data...")
+            with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
+                pickle.dump(search_result, search_result_file)
+            del best_params['in_shape']
+            del best_params['out_shape']
+        else:
+            # no hyperparam search
+            best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
         best_params['exp_name'] = exp_name
         history, model = build_and_fit_nn_classifier(X_train, y_train, best_params, X_val=X_test_species_val, y_val=y_test_species_val, verbose=1)
 
@@ -1112,6 +1190,7 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
         # Compute performance on test set
         y_score = model.predict(X_test_species[test_idx])
         pred_file['trial_preds'][jj, :, :] = model.predict(X_test_species)
+        pred_file['trial_hyperparams'].append(best_params)
         y_pred = y_score > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
         perf_trial = evaluate_performance(y_test, y_score, y_pred)
         for go_id in range(0, y_pred.shape[1]):
@@ -1193,12 +1272,12 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
             print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
         exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
-        '''
         # hyperparam search
-        params['in_shape'] = X_train.shape[1]
-        params['out_shape'] = y_train.shape[1]
+        print('number of hyperparam sets to train for this trial:' + str(num_hyperparam_sets))
+        params['in_shape'] = [X_train.shape[1]]
+        params['out_shape'] = [y_train.shape[1]]
         keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-        clf = RandomizedSearchCV(keras_model, params, cv=5, n_iter=num_hyperparam_sets, scoring='average_precision')
+        clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True))
         search_result = clf.fit(X_train, y_train)
         # summarize results
         means = search_result.cv_results_['mean_test_score']
@@ -1215,10 +1294,9 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
             pickle.dump(search_result, search_result_file)
         del best_params['in_shape']
         del best_params['out_shape']
-        '''
 
         # no hyperparam search
-        best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+        #best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
         best_params['exp_name'] = exp_name
         history, model = build_and_fit_nn_classifier(X[train_idx, :], y_train, best_params, verbose=1)
 
@@ -1226,7 +1304,7 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
         y_pred = np.zeros_like(y_test)
 
         # Compute performance on test set
-        y_score = model.predict(X[test_idx])
+        y_score = model.predict(X_test)
         pred_file['trial_preds'][jj, :, :] = model.predict(X)
         y_pred = y_score > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
         perf_trial = evaluate_performance(y_test, y_score, y_pred)
