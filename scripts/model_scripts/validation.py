@@ -1155,13 +1155,14 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
             print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
         exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
+        print(type(num_hyperparam_sets))
         if num_hyperparam_sets > 1:
             # hyperparam search
             print('number of hyperparam sets to train for this trial:' + str(num_hyperparam_sets))
             params['in_shape'] = [X_train.shape[1]]
             params['out_shape'] = [y_train.shape[1]]
             keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True))
+            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True)) # this is training on half the training data, should probably not do this
             search_result = clf.fit(X_train, y_train)
             # summarize results
             means = search_result.cv_results_['mean_test_score']
@@ -1273,30 +1274,31 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
 
         exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
         # hyperparam search
-        print('number of hyperparam sets to train for this trial:' + str(num_hyperparam_sets))
-        params['in_shape'] = [X_train.shape[1]]
-        params['out_shape'] = [y_train.shape[1]]
-        keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-        clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True))
-        search_result = clf.fit(X_train, y_train)
-        # summarize results
-        means = search_result.cv_results_['mean_test_score']
-        stds = search_result.cv_results_['std_test_score']
-        params = search_result.cv_results_['params']
-        for mean, stdev, param in zip(means, stds, params):
-                print("%f (%f) with: %r" % (mean, stdev, param))
-        print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
-        best_params = search_result.best_params_
-        print('Best model parameters for this trial:')
-        print(best_params)
-        print ("### Using full training data...")
-        with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
-            pickle.dump(search_result, search_result_file)
-        del best_params['in_shape']
-        del best_params['out_shape']
-
-        # no hyperparam search
-        #best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+        if num_hyperparam_sets > 1:
+            print('number of hyperparam sets to train for this trial:' + str(num_hyperparam_sets))
+            params['in_shape'] = [X_train.shape[1]]
+            params['out_shape'] = [y_train.shape[1]]
+            keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
+            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True))
+            search_result = clf.fit(X_train, y_train)
+            # summarize results
+            means = search_result.cv_results_['mean_test_score']
+            stds = search_result.cv_results_['std_test_score']
+            params = search_result.cv_results_['params']
+            for mean, stdev, param in zip(means, stds, params):
+                    print("%f (%f) with: %r" % (mean, stdev, param))
+            print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
+            best_params = search_result.best_params_
+            print('Best model parameters for this trial:')
+            print(best_params)
+            print ("### Using full training data...")
+            with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
+                pickle.dump(search_result, search_result_file)
+            del best_params['in_shape']
+            del best_params['out_shape']
+        else:
+            # no hyperparam search
+            best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
         best_params['exp_name'] = exp_name
         history, model = build_and_fit_nn_classifier(X[train_idx, :], y_train, best_params, verbose=1)
 

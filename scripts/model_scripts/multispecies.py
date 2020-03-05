@@ -669,7 +669,26 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
             use_nn=use_nn, test_annot_fname=test_annot_fname)
     #print("Saving X and Y matrices") # TODO so I can use a DataGenerator in order to train the maxout nns without loading whole dataset in memory
     # But honestly, not that bad for now
+    '''
+    trial_file = {}
+    if test_annot_fname is None:
+        trial_file['X'] = X
+        trial_file['Y'] = Y
+        trial_file['aligned_net_prots'] = aligned_net_prots
+        trial_file['test_goids'] = test_goids
+        pickle.dump(trial_file, open('./train_test_data/' + model_name + '_' + ont + '_train_test_data_file.pckl', 'wb'), protocol=4)
+    else:
+        trial_file['X_rest'] = X_rest
+        trial_file['Y_rest'] = Y_rest
+        trial_file['rest_prot_names'] = rest_prot_names
+        trial_file['test_goids'] = test_goids
+        trial_file['X_test_species'] = X_test_species
+        trial_file['Y_test_species'] = Y_test_species
+        trial_file['test_species_aligned_net_prots'] = test_species_aligned_net_prots
+        pickle.dump(trial_file, open('./train_test_data/' + model_name + '_' + ont + '_one_spec_train_test_data_file.pckl', 'wb'), protocol=4)
     print(test_goids)
+    exit()
+    '''
 
     #output_projection_files(X, Y, model_name, ont, list(test_goids))
     # 5 fold cross val
