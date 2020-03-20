@@ -234,141 +234,16 @@ def remove_zero_annot_rows(X, y):
     return X, y
 
 
-def leave_one_species_out_val(X, y, spec_inds, test_species, ker='rbf'):
+def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_prots, 
+        X_rest, y_rest, rest_prot_names, test_species, go_terms, keyword, ont, num_hyperparam_sets=1,
+        arch_set=None, save_only=False):
     print('Commencing leave one species out validation for test_species ' + str(test_species))
     # spec_inds is a dictionary with keys = species taxa ids : values = species indices in 
     # the X matrix and y matrix
-    assert X.shape[0] > 0 and y.shape[0] > 0
+    assert X_test_species.shape[0] > 0 and y_test_species.shape[0] > 0
+    assert X_rest.shape[0] > 0 and y_rest.shape[0] > 0
 
-    train_species = [species for species in spec_inds.keys() if species != test_species]
-    print('train species:')
-    print(train_species)
-    test_inds = spec_inds[test_species]
-    print(test_inds)
-
-
-    #X_train = np.delete(X, test_inds, axis=0) # cross-val on these to choose hyperparams
-    #y_train = np.delete(y, test_inds, axis=0)
-    X_train = X
-    y_train = y
-    X_test = X[test_inds]
-    y_test = y[test_inds]
-    print('X_train shape')
-    print(X_train.shape)
-    print('y_train shape')
-    print(y_train.shape)
-
-    # delete 0 rows
-    X_train, y_train = remove_zero_annot_rows(X_train, y_train)
-    X_test, y_test = remove_zero_annot_rows(X_test, y_test)
-    print('X_train shape')
-    print(X_train.shape)
-    print('y_train shape')
-    print(y_train.shape)
-
-    # range of hyperparameters
-    C_range = 10.**np.arange(-1, 3)
-    if ker == 'rbf':
-        gamma_range = 10.**np.arange(-3, 1)
-    elif ker == 'lin':
-        gamma_range = [0]
-    else:
-        print ("### Wrong kernel.")
-
-    # pre-generating kernels
-    print ("### Pregenerating kernels...")
-    K_rbf_train = {}
-    K_rbf_test = {}
-    for gamma in gamma_range:
-        K_rbf_train[gamma] = kernel_func(X_train, param=gamma)
-        K_rbf_test[gamma] = kernel_func(X_test, X_train, param=gamma)
-    print ("### Done.")
-    print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
-
-    # performance measures
-    pr_micro = []
-    pr_macro = []
-    F1 = []
-    acc = []
-
-    y_score_trials = np.zeros((y.shape[1], 1), dtype=np.float)
-    it = 0
-    # parameter fitting
-    C_opt = None
-    gamma_opt = None
-    max_aupr = 0
-    splits = ml_split(y_train)
-    for C in C_range:
-        for gamma in gamma_range:
-            # Multi-label classification
-            cv_results = []
-            for train, valid in splits:
-                clf = OneVsRestClassifier(svm.SVC(C=C, kernel='precomputed',
-                                                  random_state=123,
-                                                  probability=True), n_jobs=-1)
-                K_train = K_rbf_train[gamma][train, :][:, train]
-                K_valid = K_rbf_train[gamma][valid, :][:, train]
-                y_train_t = y_train[train]
-                y_train_v = y_train[valid]
-                y_score_valid = np.zeros(y_train_v.shape, dtype=float)
-                y_pred_valid = np.zeros_like(y_train_v)
-                idx = np.where(y_train_t.sum(axis=0) > 0)[0]
-                clf.fit(K_train, y_train_t[:, idx])
-                y_score_valid[:, idx] = clf.predict_proba(K_valid)
-                y_pred_valid[:, idx] = clf.predict(K_valid)
-                perf_cv = evaluate_performance(y_train_v,
-                                               y_score_valid,
-                                               y_pred_valid)
-                cv_results.append(perf_cv['pr_micro'])
-            cv_aupr = np.median(cv_results)
-            print ("### gamma = %0.3f, C = %0.3f, AUPR = %0.3f" % (gamma, C, cv_aupr))
-            if cv_aupr > max_aupr:
-                C_opt = C
-                gamma_opt = gamma
-                max_aupr = cv_aupr
-    print ("### Optimal parameters: ")
-    print ("C_opt = %0.3f, gamma_opt = %0.3f" % (C_opt, gamma_opt))
-    print ("### Train dataset: AUPR = %0.3f" % (max_aupr))
-    print
-    print ("### Using full training data...")
-    clf = OneVsRestClassifier(svm.SVC(C=C_opt, kernel='precomputed',
-                                      random_state=123,
-                                      probability=True), n_jobs=-1)
-    y_score = np.zeros(y_test.shape, dtype=float)
-    y_pred = np.zeros_like(y_test)
-    # idx = np.where(y_train.sum(axis=0) > 0)[0]
-    clf.fit(K_rbf_train[gamma_opt], y_train)
-
-    # Compute performance on test set
-    y_score = clf.predict_proba(K_rbf_test[gamma_opt])
-    y_pred = clf.predict(K_rbf_test[gamma_opt])
-    perf_trial = evaluate_performance(y_test, y_score, y_pred)
-    for go_id in range(0, y_pred.shape[1]):
-        y_score_trials[go_id, 0] = perf_trial[go_id]
-        print(perf_trial[go_id])
-    pr_micro.append(perf_trial['pr_micro'])
-    pr_macro.append(perf_trial['pr_macro'])
-    F1.append(perf_trial['F1'])
-    acc.append(perf_trial['acc'])
-    print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
-    print
-    print
-
-    perf = dict()
-    perf['pr_micro'] = pr_micro
-    perf['pr_macro'] = pr_macro
-    perf['F1'] = F1
-    perf['acc'] = acc
-
-    return perf, y_score_trials
-
-
-def leave_one_species_out_val_nn(X, y, spec_inds, test_species, go_terms, keyword, ont, arch_set=None):
-    print('Commencing leave one species out validation for test_species ' + str(test_species))
-    # spec_inds is a dictionary with keys = species taxa ids : values = species indices in 
-    # the X matrix and y matrix
-    assert X.shape[0] > 0 and y.shape[0] > 0
-
+    '''
     train_species = [species for species in spec_inds.keys() if species != test_species]
     print('train species:')
     print(train_species)
@@ -388,24 +263,46 @@ def leave_one_species_out_val_nn(X, y, spec_inds, test_species, go_terms, keywor
     # delete 0 rows
     X_train, y_train = remove_zero_annot_rows(X_train, y_train)
     X_test, y_test = remove_zero_annot_rows(X_test, y_test)
-    print('X_train shape')
-    print(X_train.shape)
-    print('y_train shape')
-    print(y_train.shape)
-
+    '''
+    print("Shapes of X and Y matrices")
+    print('X_test_species')
+    print(X_test_species.shape)
+    print('X_rest')
+    print(X_rest.shape)
+    print('y_test_species')
+    print(y_test_species.shape)
+    print('y_rest')
+    print(y_rest.shape)
     # performance measures
     pr_micro = []
     pr_macro = []
     F1 = []
     acc = []
 
-    pred_file = {'prot_IDs': protein_names,
+    if save_only:
+        data_file = {}
+        data_file['X_rest'] = X_rest
+        data_file['Y_rest'] = y_rest
+        data_file['rest_prot_names'] = rest_prot_names
+        data_file['test_goids'] = go_terms
+        data_file['X_test_species'] = X_test_species
+        data_file['Y_test_species'] = y_test_species
+        data_file['test_species_prots'] = test_species_prots
+        dump_fname = './train_test_data/' + keyword + '_' + ont + '_loso_train_test_data_file.pckl'
+        pickle.dump(data_file, open(dump_fname, 'wb'), protocol=4)
+        exit()
+
+    it = 0
+    pred_file = {'prot_IDs': test_species_prots,
                  'GO_IDs': go_terms,
-                 'trial_preds': np.zeros((1, len(protein_names), len(go_terms))),
-                 'trial_splits': [(train_inds, test_inds)],
-                 'true_labels': y
+                 'preds': np.zeros_like(y_test_species),
+                 'true_labels': y_test_species,
                  }
-    print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
+    X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
+            y_test_species, test_species_prots)
+    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_rest, y_rest, 
+            rest_prot_names)
+    print ("Train samples=%d; #Test samples=%d" % (y_rest.shape[0], y_test_species.shape[0]))
     #downsample_rate = 0.01 # for bacteria
     #downsample_rate = 0.001 # for eukaryotes
 
@@ -415,49 +312,65 @@ def leave_one_species_out_val_nn(X, y, spec_inds, test_species, go_terms, keywor
         # for bacteria
         print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
         params = BAC_PARAMS
+        if num_hyperparam_sets == 1:
+            params = BAC_PARAMS_NO_SEARCH
     elif arch_set == 'euk':
         # for eukaryotes
         print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
         params = EUK_PARAMS
+        if num_hyperparam_sets == 1:
+            params = EUK_PARAMS_NO_SEARCH
     else:
         print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
     exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
     params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
-    
+    if num_hyperparam_sets > 1:
+        # hyperparam search
+        print('number of hyperparam sets to train:' + str(num_hyperparam_sets))
+        params['in_shape'] = [X_train.shape[1]]
+        params['out_shape'] = [y_train.shape[1]]
+        keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
+        clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True)) # this is training on half the training data, should probably not do this
+        search_result = clf.fit(X_train, y_train)
+        # summarize results
+        means = search_result.cv_results_['mean_test_score']
+        stds = search_result.cv_results_['std_test_score']
+        params = search_result.cv_results_['params']
+        for mean, stdev, param in zip(means, stds, params):
+            print("%f (%f) with: %r" % (mean, stdev, param))
+        print("Best: %f using %s" % (search_result.best_score_, search_result.best_params_))
+        best_params = search_result.best_params_
+        print('Best model parameters for this trial:')
+        print(best_params)
+        print ("### Using full training data...")
+        with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
+            pickle.dump(search_result, search_result_file)
+        del best_params['in_shape']
+        del best_params['out_shape']
+    else:
+        # no hyperparam search
+        #best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+        best_params = params
 
     print ("### Using full training data...")
-    print("Using %s" % (params))
-    with open(exp_path + '_search_results.pckl', 'wb') as search_result_file:
-        pickle.dump(search_result, search_result_file)
-    params['exp_name'] = exp_name
-    history, model = build_and_fit_nn_classifier(X_train, y_train, best_params)
+    print("Using %s" % (best_params))
+    best_params['exp_name'] = exp_name
+    history, model = build_and_fit_nn_classifier(X_rest, y_rest, best_params, verbose=1)
 
-    y_score = np.zeros(y_test.shape, dtype=float)
-    y_pred = np.zeros_like(y_test)
+    y_score = np.zeros(y_test_species.shape, dtype=float)
+    y_pred = np.zeros_like(y_test_species)
 
     # Compute performance on test set
-    y_score = model.predict(X_test)
-    pred_file['trial_preds'][jj, :, :] = model.predict(X)
+    y_score = model.predict(X_test_species)
+    pred_file['preds'] = model.predict(X_test_species)
     y_pred = y_score > 0.5 #silly way to do predictions from the scores; choose threshold, maybe use platt scaling or something else
-    perf_trial = evaluate_performance(y_test, y_score, y_pred)
-    for go_id in range(0, y_pred.shape[1]):
-        y_score_trials[go_id, jj] = perf_trial[go_id]
-    pr_micro.append(perf_trial['pr_micro'])
-    pr_macro.append(perf_trial['pr_macro'])
-    F1.append(perf_trial['F1'])
-    acc.append(perf_trial['acc'])
-    print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
+    perf = evaluate_performance(y_test_species, y_score, y_pred)
+    print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf['pr_micro'], perf['pr_macro'], perf['F1'], perf['acc']))
     print
     print
-    perf = dict()
-    perf['pr_micro'] = pr_micro
-    perf['pr_macro'] = pr_macro
-    perf['F1'] = F1
-    perf['acc'] = acc
-    y_score_pred = None
 
-    return perf, y_score_trials, y_score_pred, pred_file
+    return perf, pred_file
 
 
 def train_test(X, y, train_idx, test_idx, ker='rbf'):
@@ -506,13 +419,6 @@ def train_test(X, y, train_idx, test_idx, ker='rbf'):
         K_rbf_train[gamma] = kernel_func(X_train, param=gamma) # K_rbf_train has the same indices as y_train and X_train
         K_rbf_test[gamma] = kernel_func(X_test, X_train, param=gamma) # K_rbf_test has the same indices as y_test and X_test on axis 0 and X_train on axis 1
 
-    '''
-    if X_pred is not None:
-        y_score_pred = np.zeros((X_pred.shape[0], y.shape[1]), dtype=np.float)
-        K_rbf_pred = {}
-        for gamma in gamma_range:
-            K_rbf_pred[gamma] = kernel_func(X_pred, X, param=gamma)
-    '''
 
     print ("### Done.")
 
@@ -591,11 +497,6 @@ def train_test(X, y, train_idx, test_idx, ker='rbf'):
     print ("### Test dataset: AUPR['micro'] = %0.3f, AUPR['macro'] = %0.3f, F1 = %0.3f, Acc = %0.3f" % (perf_trial['pr_micro'], perf_trial['pr_macro'], perf_trial['F1'], perf_trial['acc']))
     print
     print
-    '''
-    if X_pred is not None:
-        print ("### Predicting functions...")
-        y_score_pred += clf.predict_proba(K_rbf_pred[gamma_opt][:, train_idx])
-    '''
 
     return perf_trial, y_scores
 
@@ -908,6 +809,7 @@ def build_and_fit_nn_classifier(X, y, params, X_val=None, y_val=None, verbose=0)
     early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=30)
     #early = EarlyStopping(monitor='val_loss', mode='min', verbose=1, min_delta=0, patience=30)
     #early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=5)
+    print('Fitting model now:')
     history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose, callbacks=[early])
     #history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose)
     y_pred_val = model.predict(X_val)
@@ -1082,14 +984,37 @@ def remove_zero_annot_rows_w_labels(X, y, protein_names):
 
 def one_spec_cross_val(X_test_species, y_test_species, test_species_prots, 
         X_rest, y_rest, rest_prot_names, go_terms, keyword, ont, 
-        n_trials=5, num_hyperparam_sets=25, arch_set=None):
+        n_trials=5, num_hyperparam_sets=25, arch_set=None, save_only=False, load_file=None):
     """Perform model selection via 5-fold cross validation"""
-    # filter samples with no annotations
-    X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
-            y_test_species, test_species_prots)
-    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_rest, y_rest, 
-            rest_prot_names)
-
+    # if supplied load_file, need to get X_test_species, y_test_species, test_species_prots, X_rest, y_rest, rest_prot_names, go_terms
+    # (basically all data arguments) from the load_file.
+    if load_file is None:
+        # filter samples with no annotations
+        X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
+                y_test_species, test_species_prots)
+        X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_rest, y_rest, 
+                rest_prot_names)
+        trial_file = {}
+        trial_file['X_rest'] = X_rest
+        trial_file['Y_rest'] = y_rest
+        trial_file['rest_prot_names'] = rest_prot_names
+        trial_file['test_goids'] = go_terms
+        trial_file['X_test_species'] = X_test_species
+        trial_file['Y_test_species'] = y_test_species
+        trial_file['test_species_prots'] = test_species_prots
+        pickle.dump(trial_file, open('./train_test_data/' + keyword + '_' + ont + '_one_spec_train_test_data_file.pckl', 'wb'), protocol=4)
+        if save_only:
+            exit()
+    else:
+        trial_file = pickle.load(open('./train_test_data/' + keyword + '_' + ont + '_one_spec_train_test_data_file.pckl', 'wb'))
+    X_rest = trial_file['X_rest']
+    y_rest = trial_file['Y_rest']
+    rest_prot_names = trial_file['rest_prot_names']
+    go_terms = trial_file['test_goids']
+    X_test_species = trial_file['X_test_species']
+    y_test_species = trial_file['Y_test_species']
+    test_species_prots = trial_file['test_species_prots']
+    
     print("Shapes of X and Y matrices")
     print('X_test_species')
     print(X_test_species.shape)
@@ -1111,6 +1036,7 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
     trial_splits = []
     for train_idx, test_idx in ss:
         trial_splits.append((train_idx, test_idx))
+
 
     y_score_trials = np.zeros((y_test_species.shape[1], n_trials), dtype=np.float)
     it = 0
@@ -1144,12 +1070,14 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
             print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
             params = BAC_PARAMS
             if num_hyperparam_sets == 1:
+                print('Not searching through params')
                 params = BAC_PARAMS_NO_SEARCH
         elif arch_set == 'euk':
             # for eukaryotes
             print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
             params = EUK_PARAMS
             if num_hyperparam_sets == 1:
+                print('Not searching through params')
                 params = EUK_PARAMS_NO_SEARCH
         else:
             print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
@@ -1215,16 +1143,30 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
      
 
 
-def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, X_pred=None, num_hyperparam_sets=25, arch_set=None):
+def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, num_hyperparam_sets=25, arch_set=None, load_file=None):
     """Perform model selection via 5-fold cross validation"""
-    # filter samples with no annotations
-    print("before remove_zero_annot_rows")
-    print(X.shape)
-    X, _ = remove_zero_annot_rows(X, y)
-    protein_names, y = remove_zero_annot_rows(np.array(protein_names), y)
+    if load_file is None:
+        # filter samples with no annotations
+        print("before remove_zero_annot_rows")
+        print(X.shape)
+        X, _ = remove_zero_annot_rows(X, y)
+        protein_names, y = remove_zero_annot_rows(np.array(protein_names), y)
 
-    if X_pred is not None:
-        y_score_pred = np.zeros((X_pred.shape[0], y.shape[1]), dtype=np.float)
+        if save_only:
+            data_file = {}
+            data_file['X'] = X
+            data_file['Y'] = y
+            data_file['prot_names'] = protein_names
+            data_file['test_goids'] = go_terms
+            dump_fname = './train_test_data/' + keyword + '_' + ont + '_cross_validation_train_test_data_file.pckl'
+            pickle.dump(data_file, open(dump_fname, 'wb'), protocol=4)
+            exit()
+    else:
+        data_file = pickle.load(open(load_file, 'rb'))
+        X = data_file['X']
+        y = data_file['Y']
+        protein_names = data_file['prot_names']
+        go_terms = data_file['test_goids']
 
     # performance measures
     pr_micro = []
