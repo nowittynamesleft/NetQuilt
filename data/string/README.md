@@ -15,3 +15,17 @@ The "generate_all_alpha_preprocessing.sh" shell script just runs the pipeline sc
 To run the resulting "511145,316407,316385,224308,71421,243273_generate_all_alpha_preprocessing.sh" script, use disBatch (make sure to first "module add disBatch" on the Flatiron cluster). This is not required, you can use any distributed computation program (see https://github.com/flatironinstitute/disBatch to have an idea of what features such a program might have) to run the pipeline.
 
 sbatch -N 4 -p ccb --ntasks-per-node 3 --exclusive --wrap "disBatch.py 511145,316407,316385,224308,71421,243273_generate_all_alpha_preprocessing.sh"
+
+
+Okay, need to restructure this to run efficiently. Need step-based computation. Can automate later.
+
+Step 1:
+Download networks, fastas, annotations from STRING.
+Step 2:
+Compute BLAST between species and run random walk with restarts (RWR) for each species' network.
+Step 3:
+Compute IsoRank for all pairs of species using the BLAST files and each species' network file.
+Step 4:
+Run multispecies maxout neural network on the concatenated RWR and IsoRank matrices with annotations as labels.
+
+I should have files that do these steps.

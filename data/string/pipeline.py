@@ -7,6 +7,8 @@ from create_block_matrix import save_block_matrices, save_rwr_matrices, save_lef
 tax_ids = sys.argv[1].split(',')
 alpha = float(sys.argv[2])
 leave_species_out = sys.argv[3]
+if leave_species_out == 'None':
+    leave_species_out = None
 
 net_dir = './network_files_no_add/'
 #save_annots(tax_ids)
@@ -22,7 +24,11 @@ net_dir = './network_files_no_add/'
 #save_block_matrices(alpha, tax_ids, block_matrix_folder='./block_matrix_rand_init_test_files_no_add/', rand_init=True, ones_init=False)
 '''
 block_mat_folder = './block_matrix_ones_init_test_files_no_add/'
-save_block_matrices(alpha, tax_ids, network_folder=net_dir, block_matrix_folder=block_mat_folder, rand_init=False, ones_init=True, leave_species_out=leave_species_out)
+blast_folder = './blast_files/'
+#blast_folder = './blast_test_folder/'
+#block_mat_folder = './block_matrix_test_folder/'
 
+print('Saving all leave out matrices for ' + leave_species_out)
+save_block_matrices(alpha, tax_ids, network_folder=net_dir, blast_folder=blast_folder, block_matrix_folder=block_mat_folder, rand_init=False, ones_init=True, leave_species_out=leave_species_out)
 save_left_out_matrix(alpha, tax_ids, leave_species_out, network_folder=net_dir, block_matrix_folder=block_mat_folder)
 print('Done.')
