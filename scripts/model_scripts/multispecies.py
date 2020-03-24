@@ -291,10 +291,14 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
         #X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = np.asarray(minmax_scale_sparse(Net['net']))
     for ii in range(0, len(tax_ids)):
         for jj in range(ii + 1, len(tax_ids)):
-            if tax_ids[jj] == left_out_tax_id: # this assumes that the leaveout taxon is the second one in the file name (so leave out taxa should be the last taxa)
+            if tax_ids[jj] == left_out_tax_id:
                 leave_out_block_file = data_folder + block_matrix_folder  + tax_ids[ii] + "-" + tax_ids[jj] + "-leaveout_alpha_" + str(alpha) + "_block_matrix.pckl"
                 print('Loading ' + leave_out_block_file)
                 R = pickle.load(open(leave_out_block_file, "rb"))
+            elif tax_ids[ii] == left_out_tax_id:
+                leave_out_block_file = data_folder + block_matrix_folder  + tax_ids[jj] + "-" + tax_ids[ii] + "-leaveout_alpha_" + str(alpha) + "_block_matrix.pckl"
+                print('Loading ' + leave_out_block_file)
+                R = pickle.load(open(data_folder + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))
             else:
                 print('Loading ' + data_folder + block_matrix_folder  + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
                 R = pickle.load(open(data_folder + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "rb"))

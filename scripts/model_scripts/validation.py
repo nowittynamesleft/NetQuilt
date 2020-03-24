@@ -292,16 +292,16 @@ def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_pr
         pickle.dump(data_file, open(dump_fname, 'wb'), protocol=4)
         exit()
 
+    X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
+            y_test_species, test_species_prots)
+    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_rest, y_rest, 
+            rest_prot_names)
     it = 0
     pred_file = {'prot_IDs': test_species_prots,
                  'GO_IDs': go_terms,
                  'preds': np.zeros_like(y_test_species),
                  'true_labels': y_test_species,
                  }
-    X_test_species, y_test_species, test_species_prots = remove_zero_annot_rows_w_labels(X_test_species, 
-            y_test_species, test_species_prots)
-    X_rest, y_rest, rest_prots = remove_zero_annot_rows_w_labels(X_rest, y_rest, 
-            rest_prot_names)
     print ("Train samples=%d; #Test samples=%d" % (y_rest.shape[0], y_test_species.shape[0]))
     #downsample_rate = 0.01 # for bacteria
     #downsample_rate = 0.001 # for eukaryotes
@@ -1143,7 +1143,7 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
      
 
 
-def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, num_hyperparam_sets=25, arch_set=None, load_file=None):
+def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5, num_hyperparam_sets=25, arch_set=None, save_only=False, load_file=None):
     """Perform model selection via 5-fold cross validation"""
     if load_file is None:
         # filter samples with no annotations
