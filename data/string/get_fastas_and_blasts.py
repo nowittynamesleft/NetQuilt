@@ -45,7 +45,7 @@ def get_single_fasta(taxon, fasta_folder):
 
 def interspecies_blast(tax_ids, fasta_folder='./fasta_files/', blast_folder='./blast_files/'):
     print('Running BLAST on all combos.')
-    combos = list(itertools.combinations(tax_ids, 2))
+    combos = list(itertools.combinations_with_replacement(tax_ids, 2))
     print('Number of combos:')
     print(len(combos))
     for combo in combos:

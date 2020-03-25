@@ -312,13 +312,13 @@ def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_pr
         # for bacteria
         print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
         params = BAC_PARAMS
-        if num_hyperparam_sets == 1:
+        if int(num_hyperparam_sets) == 1:
             params = BAC_PARAMS_NO_SEARCH
     elif arch_set == 'euk':
         # for eukaryotes
         print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
         params = EUK_PARAMS
-        if num_hyperparam_sets == 1:
+        if int(num_hyperparam_sets) == 1:
             params = EUK_PARAMS_NO_SEARCH
     else:
         print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')

@@ -256,7 +256,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
         #perf, y_score_trials = leave_one_species_out_val(X, Y, spec_to_spec_inds, test_tax_id)
 
 
-def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=None):
+def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=None, isorank_diag=False):
     # creating a block matrix
     print ("### Creating the block matrix...")
     string_prots = []
@@ -286,9 +286,15 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
     #X = sparse.csr_matrix((cum_num_prot_ids[-1], cum_num_prot_ids[-1]))
     print('Filling up X matrix')
     for ii in range(0, len(tax_ids)):
-        Net = Nets[ii]
-        X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(Net['net'].todense()))
-        #X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = np.asarray(minmax_scale_sparse(Net['net']))
+        if isorank_diag:
+            diag_block = data_folder + block_matrix_folder  + tax_ids[ii] + "-" + tax_ids[ii] + "_alpha_" + str(alpha) + "_block_matrix.pckl"
+            print('Loading ' + diag_block)
+            S_ii = pickle.load(open(diag_block, 'rb'))
+            X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(S_ii.todense()))
+        else:
+            Net = Nets[ii]
+            X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(Net['net'].todense()))
+            #X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = np.asarray(minmax_scale_sparse(Net['net']))
     for ii in range(0, len(tax_ids)):
         for jj in range(ii + 1, len(tax_ids)):
             if tax_ids[jj] == left_out_tax_id:
@@ -523,7 +529,10 @@ def process_and_align_matrices_loso():
     print(np.array(goterms)[np.where(Y[10, :])])
 
 
-def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', use_orig_feats=False, use_nn=False, test_annot_fname=None, left_out_tax_id=None):
+def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_ids, alpha, 
+        test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', 
+        network_folder='network_files/', use_orig_feats=False, use_nn=False, test_annot_fname=None, 
+        left_out_tax_id=None, isorank_diag=False):
     '''
     Returns aligned X and Y matrices from annotation filename and tax_id list for networks.
     If test_annot_fname is specified, returns aligned X_test_species and Y_test_species matrices as well.
@@ -570,7 +579,7 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
     assert len(annot_prots) == Y.shape[0]
     if use_orig_feats:
         print('Using orig features')
-        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=left_out_tax_id)
+        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=left_out_tax_id, isorank_diag=isorank_diag)
 
     else:
         #  Load networks/features
@@ -656,21 +665,22 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
 def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=None, 
         results_path='./results/test_results', block_matrix_folder='block_matrix_files/', 
         network_folder='network_files/', use_orig_feats=False, use_nn=False, 
-        num_hyperparam_sets=None, arch_set=None, n_trials=5, save_only=False, load_fname=None):
+        num_hyperparam_sets=None, arch_set=None, n_trials=5, save_only=False, load_fname=None,
+        isorank_diag=False):
     if load_fname is None:
         if test_annot_fname is None:
             X, Y, aligned_net_prots, test_goids = process_and_align_matrices(annot_fname,
                 ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, 
                 results_path=results_path, block_matrix_folder=block_matrix_folder, 
                 network_folder=network_folder, use_orig_feats=use_orig_feats, 
-                use_nn=use_nn, test_annot_fname=test_annot_fname)
+                use_nn=use_nn, test_annot_fname=test_annot_fname, isorank_diag=isorank_diag)
         else:
             (X_rest, Y_rest, rest_prot_names, test_goids, X_test_species, Y_test_species, 
                     test_species_aligned_net_prots) = process_and_align_matrices(annot_fname,
                 ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, 
                 results_path=results_path, block_matrix_folder=block_matrix_folder, 
                 network_folder=network_folder, use_orig_feats=use_orig_feats, 
-                use_nn=use_nn, test_annot_fname=test_annot_fname)
+                use_nn=use_nn, test_annot_fname=test_annot_fname, isorank_diag=isorank_diag)
     else:
         load_file = pickle.load(open(load_fname, 'rb')) 
         if test_annot_fname is None:
@@ -767,6 +777,7 @@ if __name__ == "__main__":
     parser.add_argument('--test_annot_fname', type=str, default=None, help="Optional; additional annotation filename to select cross validation over (leaving out test proteins from this set), training on all annotations given by the --annot filename and testing on 1/5 of the proteins from this annotation file. For this, the species should not be included in the annotations given by the --annot argument (but included in the tax_id list for getting all the RWR/IsoRank features). In loso validation, this would be the left out species' annotation file.")
     parser.add_argument('--test_tax_id', type=str, default=None, help="Taxonomy ID to test on. LOSO valid type only.")
     parser.add_argument('--use_orig_features', help="Use ISORANK S matrix as features for func pred instead of autoencoder features", action='store_true')
+    parser.add_argument('--isorank_diag', help="Use ISORANK matrix on diagonal (PPI + BLAST instead of just RWR PPI)", action='store_true')
     parser.add_argument('--use_nn_val', help="Use neural net instead of svm for func pred validation", action='store_true')
     parser.add_argument('--save_only', help="Only create features/associated labels/trial splits for use in cross validation (one spec only for now)", action='store_true')
     parser.add_argument('--num_hyperparam_sets', type=int, help="For using neural networks on original features, gives number of models to train in the hyperparameter search.")
@@ -798,13 +809,14 @@ if __name__ == "__main__":
     arch_set = args.arch_set
     test_annot_fname = args.test_annot_fname
     save_only = args.save_only
+    isorank_diag = args.isorank_diag
 
     net_folder = 'network_files_no_add/'
     block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
     print(args)
 
     if val == 'cv':
-        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials, save_only=save_only)
+        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials, save_only=save_only, isorank_diag=isorank_diag)
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_blast_init_test_files/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files_no_add/')
         #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_2/')

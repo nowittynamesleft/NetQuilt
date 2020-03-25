@@ -15,7 +15,9 @@ from os import path
 
 def load_adj(fname_pckl, net_type='experimental'):
     """Load pickle file with string networks."""
-    net = pickle.load(open(fname_pckl, 'rb'))
+    file_pckl = open(fname_pckl, 'rb')
+    net = pickle.load(file_pckl)
+    file_pckl.close()
     proteins = net['prot_IDs']
     A = net['nets'][net_type]
     A = A/A.max()
@@ -70,7 +72,7 @@ def get_single_rwr(tax_id, network_folder):
     print ('\n')
 
 
-def get_single_isorank_block(tax_id_combo, alpha, network_folder, blast_folder, block_matrix_folder, rand_init, ones_init):
+def save_single_isorank_block(tax_id_combo, alpha, network_folder, blast_folder, block_matrix_folder, rand_init, ones_init):
     tax_id_1 = tax_id_combo[0]
     tax_id_2 = tax_id_combo[1]
 
@@ -83,12 +85,15 @@ def get_single_isorank_block(tax_id_combo, alpha, network_folder, blast_folder, 
     if '-leaveout' in tax_id_2:
         tax_id_2 = tax_id_2.split('-')[0]
         leaveout_2 = True
+
     if path.exists(block_mat_fname):
         print('Block mat file ' + block_mat_fname + ' already exists; skipping')
         return
+    '''
     elif tax_id_1 == tax_id_2:
         print('No isorank matrix will be computed between a species with itself')
         return
+    '''
     #prot2index_1, A_1, _ = load_adj(network_folder + tax_ids[ii] + "_networks_string.v10.5.pckl")
     #prot2index_2, A_2, _ = load_adj(network_folder + tax_ids[jj] + "_networks_string.v10.5.pckl")
     prot2index_1, A_1, _ = load_adj(network_folder + tax_id_1 + "_networks_string.v11.0.pckl")
@@ -100,11 +105,23 @@ def get_single_isorank_block(tax_id_combo, alpha, network_folder, blast_folder, 
     try:
         R = load_blastp(blast_folder + tax_id_1 + "-" + tax_id_2 + "_blastp.tab", prot2index_1, prot2index_2)
     except FileNotFoundError:
-        print('Blast file for ' + str(tax_id_1) + "-" + tax_id_2 + ' not found. Blasting them and then computing block matrix with isorank.')
-        interspecies_blast([tax_id_1, tax_id_2])
-        R = load_blastp(blast_folder + tax_id_1 + "-" + tax_id_2 + "_blastp.tab", prot2index_1, prot2index_2)
+        print('Blast file for ' + tax_id_1 + "-" + tax_id_2 + ' not found. Switching the tax ids to see if the transpose can be found..')
+        try: 
+            blast_file = blast_folder + tax_id_2 + "-" + tax_id_1 + "_blastp.tab"
+            R = load_blastp(blast_file, prot2index_1, prot2index_2)
+            print('Blast file ' + blast_file + ' found!')
+            print('R shape (not transposed):')
+            print(R.shape)
+        except FileNotFoundError:
+            print('Blast file for ' + tax_id_2 + "-" + tax_id_1 + ' not found. Blasting them and then computing block matrix with isorank.')
+            interspecies_blast([tax_id_1, tax_id_2])
+            R = load_blastp(blast_folder + tax_id_1 + "-" + tax_id_2 + "_blastp.tab", prot2index_1, prot2index_2)
     print('Computing isorank for ' + block_mat_fname)
-    S = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=1000, rand_init=rand_init, ones_init=ones_init)
+    print('A_1 shape:')
+    print(A_1.shape)
+    print('A_2 shape:')
+    print(A_2.shape)
+    S = IsoRank(A_1, A_2, R, alpha=alpha, maxiter=50, rand_init=rand_init, ones_init=ones_init)
     print('Dumping to ' + block_mat_fname)
     pickle.dump(S, open(block_mat_fname, "wb"), protocol=4)
 
@@ -130,13 +147,17 @@ def save_left_out_matrix(alpha, tax_ids, left_out_tax_id, network_folder='./netw
     '''
     Function assumes all necessary block matrices have already been computed, and network files (including left out one, for protein ids only) have been downloaded from STRING
     '''
+    print('Save left out matrix!')
+    print('Tax ids:')
+    print(tax_ids)
     tax_id_combos = []
     for ii in range(0, len(tax_ids)):
         if tax_ids[ii] != left_out_tax_id: # check to see if the tax id is the same; you don't want to have extra combos of -leavout -leaveout
             tax_id_combos.append((tax_ids[ii], left_out_tax_id + '-leaveout'))
     print(tax_id_combos)
     pool = Pool(int(multiprocessing.cpu_count()))
-    isorank_blocks = pool.starmap(load_single_isorank_block, zip(tax_id_combos, itertools.repeat(alpha), itertools.repeat(block_matrix_folder)))
+    #isorank_blocks = pool.starmap(load_single_isorank_block, zip(tax_id_combos, itertools.repeat(alpha), itertools.repeat(block_matrix_folder)))
+    isorank_blocks = [load_single_isorank_block(*args) for args in  zip(tax_id_combos, itertools.repeat(alpha), itertools.repeat(block_matrix_folder))]
     print(len(isorank_blocks))
     print(isorank_blocks[0].shape)
     print(isorank_blocks)
@@ -144,8 +165,8 @@ def save_left_out_matrix(alpha, tax_ids, left_out_tax_id, network_folder='./netw
     #replacements = pool.starmap(get_ss_transpose, zip(isorank_blocks))
     left_out_matrix = np.mean(replacements, axis=0)
     print(left_out_matrix.shape)
-    tax_ids.remove(left_out_tax_id)
-    left_out_fname = network_folder + left_out_tax_id + "_leftout_features_using_" + ','.join(tax_ids) + "_string.v11.0.pckl"
+    used_tax_ids = [tax_id for tax_id in tax_ids if tax_id != left_out_tax_id]
+    left_out_fname = network_folder + left_out_tax_id + "_leftout_features_using_" + ','.join(used_tax_ids) + "_string.v11.0.pckl"
     network_file = network_folder + left_out_tax_id + "_networks_string.v11.0.pckl"
     prot2index, A, net_prots = load_adj(network_file)
     left_out_feats = {}
@@ -153,7 +174,7 @@ def save_left_out_matrix(alpha, tax_ids, left_out_tax_id, network_folder='./netw
     left_out_feats['prot_IDs'] = net_prots
     print(left_out_feats.keys())
     print('Dumping ' + left_out_fname)
-    pickle.dump(left_out_feats, open(left_out_fname, 'wb'))
+    pickle.dump(left_out_feats, open(left_out_fname, 'wb'), protocol=4)
 
 
 def save_rwr_matrices(tax_ids, network_folder='./network_files/', leave_species_out=None, block_matrix_folder=None):
@@ -205,13 +226,18 @@ def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast
     tax_id_combos = []
     if leave_species_out is not None:
         tax_ids.append(leave_species_out + '-leaveout') # add a special leaveout block matrix list to generate, in addition to regular isorank files
+    '''
     for ii in range(0, len(tax_ids)):
         for jj in range(ii+1, len(tax_ids)):
             tax_id_combos.append((tax_ids[ii], tax_ids[jj]))
+    '''
+    for ii in range(0, len(tax_ids)):
+        for jj in range(ii, len(tax_ids)): # now including species with themselves
+            tax_id_combos.append((tax_ids[ii], tax_ids[jj]))
     pool = Pool(int(multiprocessing.cpu_count()))
     print('total combos: ' + str(len(tax_id_combos)))
-    pool.starmap(get_single_isorank_block, zip(tax_id_combos, itertools.repeat(alpha), itertools.repeat(network_folder), itertools.repeat(blast_folder), itertools.repeat(block_matrix_folder), itertools.repeat(rand_init), itertools.repeat(ones_init)))
-    #[pool.apply(get_single_isorank_block, args=(tax_id_combo, alpha, network_folder, blast_folder, block_matrix_folder, rand_init, ones_init)) for tax_id_combo in tax_id_combos]
+    pool.starmap(save_single_isorank_block, zip(tax_id_combos, itertools.repeat(alpha), itertools.repeat(network_folder), itertools.repeat(blast_folder), itertools.repeat(block_matrix_folder), itertools.repeat(rand_init), itertools.repeat(ones_init)))
+    #[pool.apply(save_single_isorank_block, args=(tax_id_combo, alpha, network_folder, blast_folder, block_matrix_folder, rand_init, ones_init)) for tax_id_combo in tax_id_combos]
     if leave_species_out is not None:
         tax_ids.remove(leave_species_out + '-leaveout')
 
