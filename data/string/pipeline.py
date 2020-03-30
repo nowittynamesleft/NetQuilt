@@ -30,5 +30,5 @@ blast_folder = './blast_files/'
 
 print('Saving all leave out matrices for ' + leave_species_out)
 save_block_matrices(alpha, tax_ids, network_folder=net_dir, blast_folder=blast_folder, block_matrix_folder=block_mat_folder, rand_init=False, ones_init=True, leave_species_out=leave_species_out)
-save_left_out_matrix(alpha, tax_ids, leave_species_out, network_folder=net_dir, block_matrix_folder=block_mat_folder)
+save_left_out_matrix(alpha, tax_ids, leave_species_out, blast_folder=blast_folder, network_folder=net_dir, block_matrix_folder=block_mat_folder)
 print('Done.')

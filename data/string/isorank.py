@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import sparse
 from scipy.sparse.linalg import norm
+from numpy.linalg import norm as dense_norm
 
 
 def RWR(A, alpha=0.9, maxiter=3, tol=1e-2):
@@ -85,48 +86,91 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=Fal
     '''
 
     # ***adding this normalization:
+    print('R_12')
+    print(type(R_12))
     R_normalized = row_wise_normalize(R_12)
+    print('R normalized type')
+    print(type(R_normalized))
     # IsoRank algorithm
     # R = R_12
     #R = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
     if rand_init:
-        S = sparse.lil_matrix(np.random.rand(n1, n2), dtype=np.float)
+        print('Creating random init matrix')
+        S = sparse.csr_matrix(np.random.rand(n1, n2), dtype=np.float)
     elif ones_init:
-        S = sparse.lil_matrix(np.ones((n1, n2)), dtype=np.float)
+        print('Creating ones init matrix')
+        S = sparse.csr_matrix(np.ones((n1, n2)), dtype=np.float)
     else:
         print('Using normalized R as initialization')
-        S = R_normalized
+        S = sparse.csr_matrix(R_normalized, dtype=np.float)
     #S = S/norm(S, ord=1) # normalizing S
-    S = S/(S.shape[0]*S.shape[1])
+    print('Dividing by number of entries')
+
+    print('A1 shape ' + str(A1.shape))
+    print('A2 shape ' + str(A2.shape))
+    sparsity_1 = 1.0 - ( A1.count_nonzero() / float(A1.shape[0]*A1.shape[1]))
+    print ("### Sparsity of the first ajacency matrix: ", str(sparsity_1))
+    sparsity_2 = 1.0 - ( A2.count_nonzero() / float(A2.shape[0]*A2.shape[1]))
+    print ("### Sparsity of the second ajacency matrix: ", str(sparsity_2))
+    dense = False
+    if sparsity_1 < 0.5 or sparsity_2 < 0.5:
+        print('Using dense matrices instead; matrices are not sparse enough')
+        dense = True
+        S = S/(S.shape[0]*S.shape[1])
+        S = S.todense()
+        A1 = A1.todense()
+        A2 = A2.todense()
+        R_normalized = R_normalized.todense()
+    print(A1)
+    print(A2)
+    A1_transpose = A1.transpose()
+    print('Starting iterations')
     for ii in range(0, maxiter):
+        print('S_prev = S')
         S_prev = S
         try:
+            print('assert alpha > 0')
             assert alpha >= 0 and 1 - alpha >= 0
         except AssertionError:
             print(alpha >= 0)
             print(1 - alpha >= 0)
             print('Alpha  or 1 - alpha is negative. Exiting.')
             exit()
-        S = alpha*A1.transpose().dot(S.dot(A2)) + (1.0 - alpha)*R_normalized
+        print('S_dot_A2')
+        S_dot_A2 = S @ A2
+        print('first_term')
+        first_term = alpha*A1_transpose @ S_dot_A2
+        print('second_term')
+        second_term = (1.0 - alpha)*R_normalized
+        print('first_term + second_term')
+        S = first_term + second_term
         #S = S/norm(S, ord=1)
         #S = S/np.sum(S)
         try:
+            print('np.sum(S < 0) == 0 assertion')
             S_is_pos = np.sum(S < 0) == 0
             assert S_is_pos
         except AssertionError:
             print(np.sum(S < 0) == 0)
             print('S not all greater than 0. Exiting.') 
             exit()
-        delta = norm(S - S_prev, ord='fro')/norm(S_prev, ord='fro')
-        print(norm(S_prev, ord='fro'))
-        print(norm(S, ord='fro'))
+        print('delta calculation')
+        if dense:
+            delta = dense_norm(S - S_prev, ord='fro')/dense_norm(S_prev, ord='fro')
+            print(dense_norm(S_prev, ord='fro'))
+            print(dense_norm(S, ord='fro'))
+        else:
+            delta = norm(S - S_prev, ord='fro')/norm(S_prev, ord='fro')
+            print(norm(S_prev, ord='fro'))
+            print(norm(S, ord='fro'))
+            
         print ("iteration %d with delta=%f" % (ii, delta))
         if delta < tol:
             print('Converged to less than ' + str(tol))
             print(S)
             break
 
-    return S
+    return sparse.lil_matrix(S)
 
 
 if __name__ == "__main__":
