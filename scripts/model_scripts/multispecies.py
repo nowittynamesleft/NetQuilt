@@ -237,7 +237,7 @@ def remove_missing_annot_prots(annot_prots, Y, mapping_dict):
 def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, 
         test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path='./results/test_results/', 
         block_matrix_folder='block_matrix_files/', network_folder='network_files/', num_hyperparam_sets=1,
-        use_orig_feats=True, use_nn=True, arch_set=None, save_only=False):
+        use_orig_feats=True, use_nn=True, arch_set=None, save_only=False, isorank_diag=True, version=1):
     # need to make: dictionary of species taxa ids to species inds in the X matrix
     #  Load annotations
     (X_rest, Y_rest, rest_prot_names, test_goids, X_test_species, Y_test_species, 
@@ -245,7 +245,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
         ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, 
         results_path=results_path, block_matrix_folder=block_matrix_folder, 
         network_folder=network_folder, use_orig_feats=use_orig_feats, 
-        use_nn=use_nn, test_annot_fname=test_annot_fname, left_out_tax_id=test_tax_id)
+        use_nn=use_nn, test_annot_fname=test_annot_fname, left_out_tax_id=test_tax_id, isorank_diag=isorank_diag, version=version)
 
     if use_nn:
         perf, pred_file = leave_one_species_out_val_nn(X_test_species, Y_test_species, test_species_aligned_net_prots, X_rest, Y_rest, rest_prot_names, test_tax_id, test_goids, model_name, ont, arch_set=arch_set, save_only=save_only, num_hyperparam_sets=num_hyperparam_sets)
@@ -256,37 +256,68 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
         #perf, y_score_trials = leave_one_species_out_val(X, Y, spec_to_spec_inds, test_tax_id)
 
 
-def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=None, isorank_diag=False):
+def predicted_net_cv_main(annot_fname, ont, model_name, data_folder, tax_ids, 
+        test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path='./results/test_results/', 
+        block_matrix_folder='block_matrix_files/', network_folder='network_files/', num_hyperparam_sets=1,
+        use_orig_feats=True, use_nn=True, arch_set=None, save_only=False, isorank_diag=True):
+    other_taxa = [tax_id for tax_id in tax_ids if tax_id != test_tax_id]
+    X, Y, aligned_net_prots, test_goids = process_and_align_matrices(annot_fname,
+        ont, model_name, data_folder, [test_tax_id], alpha, test_goid_fname, 
+        results_path=results_path, block_matrix_folder=block_matrix_folder, 
+        network_folder=network_folder, use_orig_feats=use_orig_feats, 
+        use_nn=use_nn, test_annot_fname=test_annot_fname, left_out_tax_id=test_tax_id, isorank_diag=isorank_diag, other_taxa=other_taxa)
+    if use_nn:
+        perf, y_score_trials, pred_file = cross_validation_nn(X, Y, 
+            aligned_net_prots, test_goids, model_name, ont, n_trials=n_trials, 
+            num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set)
+        pickle.dump(pred_file, open(results_path
+                + model_name + '_predicted_net_cv_use_nn_' 
+                + ont + '_pred_file.pckl', 'wb'))
+
+def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=None, isorank_diag=False, other_taxa=None, version=1):
     # creating a block matrix
     print ("### Creating the block matrix...")
     string_prots = []
     cum_num_prot_ids = [0]
     species_string_prots = {}
     Nets = []
-    for ii in range(0, len(tax_ids)):
-        #print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl")
-        #Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v10.5.pckl", "rb"))
-        if tax_ids[ii] == left_out_tax_id:
-            other_taxa = tax_ids.copy()
-            other_taxa.remove(left_out_tax_id)
-            left_out_feat_fname = data_folder + network_folder + tax_ids[ii] + "_leftout_features_using_" + ','.join(other_taxa) + "_string.v11.0.pckl"
-            print('Loading ' + left_out_feat_fname)
-            #4932_leftout_features_using_9606_string.v11.0.pckl
-            Net = pickle.load(open(left_out_feat_fname, "rb"))
-        else:
-            print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl")
-            Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb"))
+    if other_taxa is None:
+        for ii in range(0, len(tax_ids)):
+            if tax_ids[ii] == left_out_tax_id:
+                other_taxa = tax_ids.copy()
+                other_taxa.remove(left_out_tax_id)
+                left_out_feat_fname = data_folder + network_folder + tax_ids[ii] + "_leftout_network_using_" + ','.join(other_taxa) + "_string.v11.0.pckl"
+                print('Loading ' + left_out_feat_fname)
+                Net = pickle.load(open(left_out_feat_fname, "rb"))
+            else:
+                print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl")
+                Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb")) # even if isorank diag is actually used, this file still has the protein ids, and so needs to be inputted, but I should restructure the files so that the isorank diag matrices also have the protein ids. Should fix this later.
+            Nets.append(Net)
+            cum_num_prot_ids.append(cum_num_prot_ids[ii] + len(Net['prot_IDs']))
+            string_prots += Net['prot_IDs']
+            species_string_prots[tax_ids[ii]] = Net['prot_IDs']
+            print('number of proteins in this tax_id: ' + str(len(species_string_prots[tax_ids[ii]])))
+    else:
+        # test predicted matrix
+        left_out_feat_fname = data_folder + network_folder + left_out_tax_id + "_leftout_network_using_" + ','.join(other_taxa) + '_version_' + str(version) + "_string.v11.0.pckl"
+        print('Loading ' + left_out_feat_fname)
+        Net = pickle.load(open(left_out_feat_fname, "rb"))
         Nets.append(Net)
-        cum_num_prot_ids.append(cum_num_prot_ids[ii] + len(Net['prot_IDs']))
+        cum_num_prot_ids.append(len(Net['prot_IDs']))
         string_prots += Net['prot_IDs']
-        species_string_prots[tax_ids[ii]] = Net['prot_IDs']
-        print('number of proteins in this tax_id: ' + str(len(species_string_prots[tax_ids[ii]])))
+        species_string_prots[left_out_tax_id] = Net['prot_IDs']
+        print('number of proteins in this tax_id: ' + str(len(species_string_prots[left_out_tax_id])))
 
     X = np.zeros((cum_num_prot_ids[-1], cum_num_prot_ids[-1]))
     #X = sparse.csr_matrix((cum_num_prot_ids[-1], cum_num_prot_ids[-1]))
     print('Filling up X matrix')
     for ii in range(0, len(tax_ids)):
-        if isorank_diag:
+        if isorank_diag and tax_ids[ii] == left_out_tax_id:
+            leave_out_block_file = data_folder + block_matrix_folder  + left_out_tax_id + "-" + left_out_tax_id + "_left_out_using_" + ','.join(other_taxa) + '_version_' + str(version) + "_alpha_" + str(alpha) + "_block_matrix.pckl"
+            print('Loading ' + leave_out_block_file)
+            S_ii = pickle.load(open(leave_out_block_file, 'rb'))
+            X[cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1], cum_num_prot_ids[ii]:cum_num_prot_ids[ii+1]] = minmax_scale(np.asarray(S_ii.todense()))
+        elif isorank_diag:
             diag_block = data_folder + block_matrix_folder  + tax_ids[ii] + "-" + tax_ids[ii] + "_alpha_" + str(alpha) + "_block_matrix.pckl"
             print('Loading ' + diag_block)
             S_ii = pickle.load(open(diag_block, 'rb'))
@@ -354,185 +385,10 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     pickle.dump(pred_file, open(results_path + model_name + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
 
 
-def process_and_align_matrices_loso():
-    Annot = pickle.load(open(annot_fname, 'rb'))
-    Y = np.asarray(Annot['annot'][ont].todense())
-    annot_prots = Annot['prot_IDs']
-    goterms = Annot['go_IDs'][ont]
-
-    use_orig_feats = True
-    if use_orig_feats:
-        print('Using original feats')
-        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=test_tax_id)
-
-    else:
-        #  Load networks/features
-        feature_fname = results_path + model_name.split('-')[0] + '_features.pckl'
-        if os.path.isfile(feature_fname):
-            print('### Found features in ' + feature_fname + ' Loading it.')
-            String = pickle.load(open(feature_fname, 'rb'))
-            string_prots = String['prot_IDs']
-            X = String['features']
-            cum_num_prot_ids = [0]
-            species_string_prots = String['species_prots']
-            for ii in range(0, len(tax_ids)):
-                cum_num_prot_ids.append(cum_num_prot_ids[ii] + len(species_string_prots[tax_ids[ii]]))
-        else:
-
-            # X = minmax_scale(String['net'].todense())
-            # string_prots = String['prot_IDs']
-            X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
-
-            '''
-            Builds and trains the autoencoder and scales the features.
-            '''
-            input_dims = [X.shape[1]]
-            # encode_dims = [2000, 1000, 2000]
-            encode_dims = [1000]
-            model, history = build_model(X, input_dims, encode_dims, mtype='ae')
-            export_history(history, model_name=model_name, kwrd='AE', results_path=results_path)
-
-            mid_model = Model(inputs=model.input, outputs=model.get_layer('middle_layer').output)
-
-            X = minmax_scale(mid_model.predict(X))
-            String = {}
-            String['features'] = X
-            String['prot_IDs'] = string_prots
-            String['species_prots'] = species_string_prots
-            pickle.dump(String, open(feature_fname, 'wb'))
-
-    # Load features
-    # String_ecoli = pickle.load(open(results_path + 'string_dmelanogaster_features.pckl', 'rb'))
-    # string_prots_ecoli = String_ecoli['prot_IDs']
-    # ecoli_idx, model_org_idx = get_common_indices(string_prots_ecoli, string_prots)
-    # string_prots = [string_prots[ii] for ii in model_org_idx]
-    # X = X[model_org_idx]
-    
-    spec_to_spec_inds = {}
-    spec_to_spec_annot_inds = {}
-    cum_num_prots_in_string = 0
-    cum_num_prots_in_annot = 0
-    tot_prots = []
-
-    # get common indices annotations
-    annot_idx, string_idx = get_common_indices(annot_prots, string_prots) # what is string_idx? it is the index (of the string_prots list) of the common proteins between annot_prots and string_prots
-    net_inds = []
-    net_prots = []
-    print('Shapes of x and y before for loop:')
-    print(X.shape)
-    print(Y.shape)
-
-    for i in range(0, len(tax_ids)):
-        # for every taxon, get the species string prot ids 
-        tax_id = tax_ids[i]
-        species_prots = species_string_prots[tax_id]
-        curr_species_annot_idx, species_idx = get_common_indices(annot_prots, species_prots) # then get the species' protein indices that are common between the species' string prot ids and the annot prots
-        #spec_to_spec_inds[tax_id] = np.arange(cum_num_prots_in_annots, cum_num_prots_in_annots + len(species_idx))
-        spec_to_spec_inds[tax_id] = np.array(species_idx) + cum_num_prots_in_string # now, set the species to species inds dictionary with the taxon id as the key, to the species indices, plus the cumulative number of proteins in the annotations
-        spec_to_spec_annot_inds[tax_id] = curr_species_annot_idx
-        # where can this go wrong? let's say that there are two proteins for two species.
-        # string indx: prot_1a, prot_1b, prot_2a, prot_2b.
-        # let's say that the annot list includes these proteins at indices 3, 5, 10, 11
-        # species_string_prots['1'] = prot_1a, prot_1b
-        # _, species_idx = ([3, 5], [0, 1])
-        # spec_to_spec_inds['1'] = [0, 1]
-        # species_string_prots['2'] = prot_2a, prot_2b
-        # _, species_idx = ([10, 11], [0, 1])
-        # spec_to_spec_inds['1'] = [0, 1] + 2 = [2, 3] which should work as long as species_prots contains only proteins of that species
-        # can there be repeat proteins? nope, just checked
-        print(tax_id)
-        print(spec_to_spec_inds[tax_id])
-        net_inds.extend(list(spec_to_spec_inds[tax_id])) # now what will net_inds be? It will be the protein indices that are of each species (that are also found in annot_prots) plus the number of previous species' proteins
-        net_prots += species_string_prots[tax_id]
-        print('Before cum_num')
-        print(cum_num_prots_in_string)
-        cum_num_prots_in_string += len(species_prots)
-        print('After cum_num')
-        print(cum_num_prots_in_string)
-    
-    try:
-        assert net_prots == string_prots
-    except AssertionError:
-        print('net_prots != string_prots. Exiting.')
-        exit()
-    try:
-        assert sorted(string_idx) == sorted(net_inds)
-    except AssertionError:
-        print('String_idx')
-        print(string_idx[:10])
-        print(string_idx[-10:])
-        print('net_inds')
-        print(net_inds[:10])
-        print(net_inds[-10:])
-        print('String idx are not the same as net_inds')
-        print(len(string_idx))
-        print(len(net_inds))
-        print(len(net_prots))
-        print(len(string_prots))
-        print(np.array(string_idx)[np.array(string_idx) != np.array(net_inds)])
-        print(np.array(net_inds)[np.array(string_idx) != np.array(net_inds)])
-        exit()
-    print('Passed the test of string_idx being the same as net_inds!!')
-    
-    string_idx = np.array(string_idx)
-    annot_idx = np.array(annot_idx)
-    # aligned data
-    print('Shapes of x and y after for loop:')
-    print(X.shape)
-    print(Y.shape)
-    test_annot_idx = spec_to_spec_annot_inds[test_tax_id]
-    test_mask = np.array(annot_idx == test_annot_idx)
-    test_string_idx = string_idx[test_mask]
-
-    train_mask = np.array(annot_idx != test_annot_idx)
-    train_string_idx = string_idx[train_mask]
-    train_annot_idx = annot_idx[annot_idx != test_annot_idx]
-
-    X_train = X[train_string_idx]
-    Y_train = Y[train_annot_idx]
-
-    X_test = X[test_string_idx]
-    Y_test = Y[test_annot_idx]
-
-    print('Y_train.shape')
-    print(Y_train.shape)
-    print('Y_test.shape')
-    print(Y_test.shape)
-    print('Test Y: ')
-    print(Y_test)
-    print('Num nonzero in train y:')
-    print(np.count_nonzero(Y_train))
-    print('Num nonzero in test y:')
-    print(np.count_nonzero(Y_test))
-    
-
-    print('Assertion: all string ')
-    try:
-        assert (np.array(string_prots)[string_idx] == np.array(annot_prots)[annot_idx]).all()
-    except AssertionError:
-        print(np.array(annot_prots)[annot_idx])
-        print(np.array(string_prots)[string_idx])
-        exit()
-
-    # selected goids
-    test_goids = pickle.load(open(test_goid_fname, 'rb'))
-    test_funcs = [goterms.index(goid) for goid in test_goids]
-    print('Number of nonzeros in Y matrix total:')
-    print(np.count_nonzero(Y))
-    Y = Y[:, test_funcs]
-    print('Number of nonzeros in Y matrix with these test funcs:')
-    print(np.count_nonzero(Y))
-    #output_projection_files(X, Y, model_name, ont, list(test_goids))
-
-    #np.where(Y.any(axis=1))[0]
-    print(string_prots[string_idx[10]])
-    print(np.array(goterms)[np.where(Y[10, :])])
-
-
 def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_ids, alpha, 
         test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', 
         network_folder='network_files/', use_orig_feats=False, use_nn=False, test_annot_fname=None, 
-        left_out_tax_id=None, isorank_diag=False):
+        left_out_tax_id=None, isorank_diag=False, other_taxa=None, version=1):
     '''
     Returns aligned X and Y matrices from annotation filename and tax_id list for networks.
     If test_annot_fname is specified, returns aligned X_test_species and Y_test_species matrices as well.
@@ -579,7 +435,7 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
     assert len(annot_prots) == Y.shape[0]
     if use_orig_feats:
         print('Using orig features')
-        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=left_out_tax_id, isorank_diag=isorank_diag)
+        X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=left_out_tax_id, isorank_diag=isorank_diag, other_taxa=other_taxa, version=version)
 
     else:
         #  Load networks/features
@@ -783,6 +639,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_hyperparam_sets', type=int, help="For using neural networks on original features, gives number of models to train in the hyperparameter search.")
     parser.add_argument('--arch_set', type=str, help="What architecture hyperparam sets to search through for using neural networks on original features (accepted values are for bacteria ('bac') or eukaryotes ('euk'))")
     parser.add_argument('--n_trials', type=int, default=5, help="Number of trials for cv")
+    parser.add_argument('--version', type=int, default=5, help="Version of leftout matrix to load (only in loso validation)")
     args = parser.parse_args() 
 
     results_path = args.results_path
@@ -813,6 +670,7 @@ if __name__ == "__main__":
 
     net_folder = 'network_files_no_add/'
     block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
+    #block_mat_folder = 'block_matrix_test_folder/'
     print(args)
 
     if val == 'cv':
@@ -829,7 +687,9 @@ if __name__ == "__main__":
             print('Need to specify tax id to test on for LOSO validation.')
         print('Leave one species out...')
         args = [annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_goid_fname, alpha]
-        leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, arch_set=arch_set, save_only=save_only, num_hyperparam_sets=num_hyperparam_sets)
+        leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, arch_set=arch_set, save_only=save_only, num_hyperparam_sets=num_hyperparam_sets, isorank_diag=isorank_diag)
+    elif val == 'predicted_net_cv':
+        predicted_net_cv_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, arch_set=arch_set, save_only=save_only, num_hyperparam_sets=num_hyperparam_sets, isorank_diag=isorank_diag)
     elif val == 'full_prediction':
         print('Full prediction setting. Training on all annotated proteins given, predicting on all proteins given.')
         predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set)

@@ -1,8 +1,0 @@
-export SLURM_NODELIST="workergpu[33,36]"
-export SLURM_JOB_NODELIST="workergpu[33,36]"
-export SLURM_NNODES=2
-export SLURM_JOB_NUM_NODES=2
-export SLURM_JOB_CPUS_PER_NODE="40(x2)"
-unset SLURM_NPROCS
-unset SLURM_NTASKS
-unset SLURM_TASKS_PER_NODE

@@ -313,18 +313,20 @@ def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_pr
         print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
         params = BAC_PARAMS
         if int(num_hyperparam_sets) == 1:
+            print('No search')
             params = BAC_PARAMS_NO_SEARCH
     elif arch_set == 'euk':
         # for eukaryotes
         print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
         params = EUK_PARAMS
         if int(num_hyperparam_sets) == 1:
+            print('No search')
             params = EUK_PARAMS_NO_SEARCH
     else:
         print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
     exp_path = exp_name + '_num_hyperparam_sets_' + str(num_hyperparam_sets)
-    params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+    #params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
     if num_hyperparam_sets > 1:
         # hyperparam search
         print('number of hyperparam sets to train:' + str(num_hyperparam_sets))
@@ -350,8 +352,7 @@ def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_pr
         del best_params['out_shape']
     else:
         # no hyperparam search
-        #best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
-        best_params = params
+        best_params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
 
     print ("### Using full training data...")
     print("Using %s" % (best_params))
@@ -1069,14 +1070,14 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
             # for bacteria
             print("RUNNING MODEL ARCHITECTURE FOR BACTERIA")
             params = BAC_PARAMS
-            if num_hyperparam_sets == 1:
+            if int(num_hyperparam_sets) == 1:
                 print('Not searching through params')
                 params = BAC_PARAMS_NO_SEARCH
         elif arch_set == 'euk':
             # for eukaryotes
             print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
             params = EUK_PARAMS
-            if num_hyperparam_sets == 1:
+            if int(num_hyperparam_sets) == 1:
                 print('Not searching through params')
                 params = EUK_PARAMS_NO_SEARCH
         else:
