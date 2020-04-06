@@ -44,7 +44,53 @@ def row_wise_normalize(mat):
     return norm_mat
 
 
+def isorank_leaveout_test(A_1, R_12, alpha):
+    S_exact = isorank_leaveout(A_1, R_12, alpha)
+    S_iter = IsoRank(A_1, sparse.identity(R_12.shape[1]), R_12, alpha=alpha, ones_init=True, tol=1e-10).todense()
+    diff = S_exact - S_iter
+    print('S_exact:')
+    print(S_exact)
+    print('S_iter:')
+    print(S_iter)
+    print('Difference:')
+    print(diff)
+    print('Norm of S_exact:')
+    print(np.linalg.norm(S_exact))
+    print('Norm of S_iter:')
+    print(np.linalg.norm(S_iter))
+    print('Norm of diff:')
+    print(np.linalg.norm(diff))
+
+
+
+def isorank_leaveout(A_1, R_12, alpha):
+    '''
+    Exact solution to isorank problem where one graph is not known (I)
+    '''
+    print('Exact soln')
+    A_1_normed = row_wise_normalize(A_1)
+    I_alphaA1 = np.eye(A_1.shape[0]) - alpha*A_1_normed.todense()
+    inverse = np.linalg.pinv(I_alphaA1) # trying pseudo inverse to see if that's closer to iterative solution? somehow with numerical stability?
+    print('inverse')
+    print(inverse)
+    print('Matmul, should be identity')
+    print(np.matmul(inverse, I_alphaA1))
+    #assert np.all(np.matmul(inverse, I_alphaA1) == np.eye(A_1.shape[0])) # not exactly identity, but close enough I guess
+    R_normalized = row_wise_normalize(R_12)
+    blast =  (1 - alpha)*R_normalized.todense()
+    S_12 = np.matmul(inverse, blast)
+
+    return S_12
+
+
 def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=False, tol=1e-2):
+    # all the normalizations done before actually iterating:
+    '''
+    A1 = row_wise_normalize(A1)
+    A2 = row_wise_normalize(A2)
+    R_normalized = row_wise_normalize(R_12)
+    Initliazation of S to random, ones, or R_normalized
+    '''
     print('ISORANK')
     print('Tolerance')
     print(tol)

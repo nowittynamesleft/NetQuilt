@@ -2,13 +2,15 @@ import sys
 from string2adj import save_networks
 from get_fastas_and_blasts import get_fastas, interspecies_blast
 from get_annotations import save_annots
-from create_block_matrix import save_block_matrices, save_rwr_matrices, save_left_out_matrix 
+from create_block_matrix import save_block_matrices, save_rwr_matrices, save_left_out_matrix, test_leaveout_calculations
 
 tax_ids = sys.argv[1].split(',')
 alpha = float(sys.argv[2])
 leave_species_out = sys.argv[3]
 if leave_species_out == 'None':
     leave_species_out = None
+
+leftout_mat_version = int(sys.argv[4])
 
 net_dir = './network_files_no_add/'
 #save_annots(tax_ids)
@@ -28,7 +30,9 @@ blast_folder = './blast_files/'
 #blast_folder = './blast_test_folder/'
 #block_mat_folder = './block_matrix_test_folder/'
 
-print('Saving all leave out matrices for ' + leave_species_out)
-save_block_matrices(alpha, tax_ids, network_folder=net_dir, blast_folder=blast_folder, block_matrix_folder=block_mat_folder, rand_init=False, ones_init=True, leave_species_out=leave_species_out)
-save_left_out_matrix(alpha, tax_ids, leave_species_out, blast_folder=blast_folder, network_folder=net_dir, block_matrix_folder=block_mat_folder)
+#print('Saving all leave out matrices for ' + leave_species_out)
+#save_block_matrices(alpha, tax_ids, network_folder=net_dir, blast_folder=blast_folder, block_matrix_folder=block_mat_folder, rand_init=False, ones_init=True, leave_species_out=leave_species_out)
+save_left_out_matrix(alpha, tax_ids, leave_species_out, blast_folder=blast_folder, network_folder=net_dir, block_matrix_folder=block_mat_folder, version=leftout_mat_version)
+#print('Testing leaveout calcs for ' + leave_species_out)
+#test_leaveout_calculations(alpha, tax_ids, leave_species_out, network_folder=net_dir, blast_folder=blast_folder, block_matrix_folder=block_mat_folder)
 print('Done.')
