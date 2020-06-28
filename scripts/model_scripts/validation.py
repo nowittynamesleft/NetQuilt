@@ -32,7 +32,7 @@ BAC_PARAMS = {'hidden_dim_1': [500],
                     #'epochs': [25],
                     #'epochs': [1], # test
                     'learning_rate': [0.01],
-                    'activation': ['relu'],
+                    'activation': ['relu'], # no activation if maxout
                     'batch_size': [16, 32],
                     #'exp_name': [exp_name]
 }
@@ -47,7 +47,7 @@ BAC_PARAMS_NO_SEARCH = {'hidden_dim_1': [500],
                     #'epochs': [25],
                     #'epochs': [1], # test
                     'learning_rate': [0.01],
-                    'activation': ['relu'],
+                    'activation': ['maxout'], # specifying this doesn't do anything, but prevents the model from running if "maxout units" is not specified
                     'batch_size': [16],
                     #'exp_name': [exp_name]
 }
@@ -58,8 +58,9 @@ EUK_PARAMS = {'hidden_dim_1': [500],
             'maxout_units': [4], 
             'dropout': [0.2],
             'epochs': [300],
+            #'epochs': [1],
             'learning_rate': [0.01],
-            'activation': ['relu'],
+            'activation': ['relu'], # no activation if maxout
             'batch_size': [32],
 }
 
@@ -70,8 +71,9 @@ EUK_PARAMS_NO_SEARCH = {'hidden_dim_1': [500],
             'maxout_units': [4], 
             'dropout': [0.2],
             'epochs': [300],
+            #'epochs': [1],
             'learning_rate': [0.01],
-            'activation': ['relu'],
+            'activation': ['maxout'], # specifying this doesn't do anything, but prevents the model from running if "maxout units" is not specified
             'batch_size': [32],
 }
 
@@ -741,7 +743,10 @@ def create_param_dict_string(params):
     dict_string = params['exp_name'] + '_maxout_' + str(params['maxout_units']) + '_arch_'
     for i in range(1,5):
         dict_string += str(params['hidden_dim_' + str(i)]) + '_'
-    dict_string += 'act_' + params['activation'] + '_lr_' + str(params['learning_rate']) + '_num_epoch_' + str(params['epochs']) + '_batch_size_' + str(params['batch_size'])
+    if params['maxout_units'] > 0:
+        dict_string += 'act_maxout_lr_' + str(params['learning_rate']) + '_num_epoch_' + str(params['epochs']) + '_batch_size_' + str(params['batch_size'])
+    else:
+        dict_string += 'act_' + params['activation'] + '_lr_' + str(params['learning_rate']) + '_num_epoch_' + str(params['epochs']) + '_batch_size_' + str(params['batch_size'])
     return dict_string
    
 
@@ -985,7 +990,7 @@ def remove_zero_annot_rows_w_labels(X, y, protein_names):
 
 def one_spec_cross_val(X_test_species, y_test_species, test_species_prots, 
         X_rest, y_rest, rest_prot_names, go_terms, keyword, ont, 
-        n_trials=5, num_hyperparam_sets=25, arch_set=None, save_only=False, load_file=None):
+        n_trials=5, num_hyperparam_sets=25, arch_set=None, save_only=False, load_file=None, subsample=False):
     """Perform model selection via 5-fold cross validation"""
     # if supplied load_file, need to get X_test_species, y_test_species, test_species_prots, X_rest, y_rest, rest_prot_names, go_terms
     # (basically all data arguments) from the load_file.
@@ -1058,6 +1063,13 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
         X_test = X_test_species[test_idx]
         y_train = np.concatenate((y_test_species_train, y_rest), axis=0)
         y_test = y_test_species[test_idx]
+        if subsample:
+            num_to_subsample = X_test_species_train.shape[0] # this is the number of elements to get
+            inds_to_subsample = np.arange(X_train.shape[0])
+            subsample_inds = np.random.choice(inds_to_subsample, size=num_to_subsample, replace=False)
+            print('Subsampling! Number of subsample inds: ' + str(num_to_subsample))
+            X_train = X_train[subsample_inds, :]
+            y_train = y_train[subsample_inds, :]
         print(X_train.shape)
         print(X_test.shape)
         print(y_train.shape)

@@ -241,7 +241,7 @@ def leave_one_species_out_main(annot_fname, ont, model_name, data_folder, tax_id
     # need to make: dictionary of species taxa ids to species inds in the X matrix
     #  Load annotations
     (X_rest, Y_rest, rest_prot_names, test_goids, X_test_species, Y_test_species, 
-            test_species_aligned_net_prots) = process_and_align_matrices(annot_fname,
+            test_species_aligned_net_prots, all_string_prots) = process_and_align_matrices(annot_fname,
         ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, 
         results_path=results_path, block_matrix_folder=block_matrix_folder, 
         network_folder=network_folder, use_orig_feats=use_orig_feats, 
@@ -385,13 +385,26 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     pickle.dump(pred_file, open(results_path + model_name + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
 
 
+def load_language_model_embeddings(lm_feat_path, tax_ids):
+    all_prot_ids = []
+    all_embeddings = []
+    for tax_id in tax_ids:
+        tax_fname = lm_feat_path + '/' + tax_id + '_language_model_features.pckl'
+        curr_lm_embedding_dict = pickle.load(open(lm_feat_path,'rb'))
+        prot_ids = curr_lm_embedding_dict['prot_ids']
+        embeddings = curr_lm_embedding_dict['features']
+        all_prot_ids.extend(prot_ids)
+        all_embeddings.append(embeddings)
+    return all_prot_ids, np.concatenate(all_embeddings, axis=0)
+
+
 def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_ids, alpha, 
         test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', 
         network_folder='network_files/', use_orig_feats=False, use_nn=False, test_annot_fname=None, 
-        left_out_tax_id=None, isorank_diag=False, other_taxa=None, version=1):
+        left_out_tax_id=None, isorank_diag=False, other_taxa=None, version=1, lm_feat_path=None):
     '''
     Returns aligned X and Y matrices from annotation filename and tax_id list for networks.
-    If test_annot_fname is specified, returns aligned X_test_species and Y_test_species matrices as well.
+    If test_annot_fname is specified, returns aligned X_test_species and Y_test_species matrices as well, with X and Y not including that species.
     '''
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
@@ -436,6 +449,10 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
     if use_orig_feats:
         print('Using orig features')
         X, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, left_out_tax_id=left_out_tax_id, isorank_diag=isorank_diag, other_taxa=other_taxa, version=version)
+        if lm_feat_path is not None:
+            lm_prots, lm_embeds = load_language_model_embeddings(lm_feat_path, tax_ids)
+            assert lm_prots == string_prots
+            X = np.concatenate([X, lm_embeds], axis=1)
 
     else:
         #  Load networks/features
@@ -510,10 +527,12 @@ def process_and_align_matrices(annot_fname, ont, model_name, data_folder, tax_id
     print(Y.shape)
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
+    print('Length of string_prots ' + str(len(string_prots)) + ' X.shape[1]: ' + str(X.shape[1]))
+    assert len(string_prots) == X.shape[1]
     if test_annot_fname is not None:
         test_species_test_funcs = [test_goterms.index(goid) for goid in test_goids]
         Y_test_species = Y_test_species[:, test_species_test_funcs]
-        return X, Y, aligned_net_prots, test_goids, X_test_species, Y_test_species, test_species_aligned_net_prots
+        return X, Y, aligned_net_prots, test_goids, X_test_species, Y_test_species, test_species_aligned_net_prots, string_prots # string prots should still have the indices of the columns of X
     else:
         return X, Y, aligned_net_prots, test_goids
 
@@ -522,21 +541,21 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
         results_path='./results/test_results', block_matrix_folder='block_matrix_files/', 
         network_folder='network_files/', use_orig_feats=False, use_nn=False, 
         num_hyperparam_sets=None, arch_set=None, n_trials=5, save_only=False, load_fname=None,
-        isorank_diag=False):
+        isorank_diag=False, subsample=False, lm_feat_path=None):
     if load_fname is None:
         if test_annot_fname is None:
             X, Y, aligned_net_prots, test_goids = process_and_align_matrices(annot_fname,
                 ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, 
                 results_path=results_path, block_matrix_folder=block_matrix_folder, 
                 network_folder=network_folder, use_orig_feats=use_orig_feats, 
-                use_nn=use_nn, test_annot_fname=test_annot_fname, isorank_diag=isorank_diag)
+                use_nn=use_nn, test_annot_fname=test_annot_fname, isorank_diag=isorank_diag, lm_feat_path=lm_feat_path)
         else:
             (X_rest, Y_rest, rest_prot_names, test_goids, X_test_species, Y_test_species, 
-                    test_species_aligned_net_prots) = process_and_align_matrices(annot_fname,
+                test_species_aligned_net_prots, all_string_prots) = process_and_align_matrices(annot_fname,
                 ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, 
                 results_path=results_path, block_matrix_folder=block_matrix_folder, 
                 network_folder=network_folder, use_orig_feats=use_orig_feats, 
-                use_nn=use_nn, test_annot_fname=test_annot_fname, isorank_diag=isorank_diag)
+                use_nn=use_nn, test_annot_fname=test_annot_fname, isorank_diag=isorank_diag, lm_feat_path=lm_feat_path)
     else:
         load_file = pickle.load(open(load_fname, 'rb')) 
         if test_annot_fname is None:
@@ -583,7 +602,8 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
             perf, y_score_trials, pred_file = one_spec_cross_val(X_test_species, 
                     Y_test_species, test_species_aligned_net_prots, X_rest, Y_rest,
                     rest_prot_names, test_goids, model_name, ont, n_trials=n_trials,
-                    num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, save_only=save_only)
+                    num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, save_only=save_only,
+                    subsample=subsample)
             pickle.dump(pred_file, open(results_path
                     + model_name + '_one_spec_cv_use_nn_' 
                     + ont + '_pred_file.pckl', 'wb'))
@@ -640,6 +660,9 @@ if __name__ == "__main__":
     parser.add_argument('--arch_set', type=str, help="What architecture hyperparam sets to search through for using neural networks on original features (accepted values are for bacteria ('bac') or eukaryotes ('euk'))")
     parser.add_argument('--n_trials', type=int, default=5, help="Number of trials for cv")
     parser.add_argument('--version', type=int, default=5, help="Version of leftout matrix to load (only in loso validation)")
+    parser.add_argument('--subsample', help="Randomly sample one-spec-cross-val to have same amount of training samples as only having one species. Used to measure effect of diversity of training examples on performance.", action='store_true')
+    parser.add_argument('--lm_feat_path', type=str, default=None, help="Language model feature path.")
+
     args = parser.parse_args() 
 
     results_path = args.results_path
@@ -667,6 +690,7 @@ if __name__ == "__main__":
     test_annot_fname = args.test_annot_fname
     save_only = args.save_only
     isorank_diag = args.isorank_diag
+    subsample = args.subsample
 
     net_folder = 'network_files_no_add/'
     block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
@@ -674,12 +698,7 @@ if __name__ == "__main__":
     print(args)
 
     if val == 'cv':
-        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials, save_only=save_only, isorank_diag=isorank_diag)
-        #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_blast_init_test_files/')
-        #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_no_add/', network_folder='network_files_no_add/')
-        #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_rand_init_test_files_2/')
-        #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, block_matrix_folder='block_matrix_files/')
-        #main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname)
+        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials, save_only=save_only, isorank_diag=isorank_diag, subsample=subsample, lm_feat_path=args.lm_feat_path)
     elif val == 'loso':
         try:
             assert test_tax_id != None
