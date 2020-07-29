@@ -83,7 +83,7 @@ def isorank_leaveout(A_1, R_12, alpha):
     return S_12
 
 
-def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=False, tol=1e-2):
+def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=False, tol=1e-2, set_iterations=None):
     # all the normalizations done before actually iterating:
     '''
     A1 = row_wise_normalize(A1)
@@ -171,6 +171,9 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=Fal
     print(A2)
     A1_transpose = A1.transpose()
     print('Starting iterations')
+    if set_iterations is not None:
+        maxiter = set_iterations
+        tol = -np.inf
     for ii in range(0, maxiter):
         print('S_prev = S')
         S_prev = S
@@ -215,7 +218,7 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=Fal
             print('Converged to less than ' + str(tol))
             print(S)
             break
-
+    print('IsoRank finished.')
     return sparse.lil_matrix(S)
 
 

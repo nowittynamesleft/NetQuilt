@@ -675,7 +675,8 @@ if __name__ == "__main__":
     parser.add_argument('--version', type=int, default=5, help="Version of leftout matrix to load (only in loso validation)")
     parser.add_argument('--subsample', help="Randomly sample one-spec-cross-val to have same amount of training samples as only having one species. Used to measure effect of diversity of training examples on performance.", action='store_true')
     parser.add_argument('--lm_feat_path', type=str, default=None, help="Language model feature path.")
-    parser.add_argument('--lm_only', action='store_true', default=None, help="Only use language model features.")
+    parser.add_argument('--lm_only', action='store_true', default=False, help="Only use language model features.")
+    parser.add_argument('--block_mat_folder', type=str, default='block_matrix_ones_init_test_files_no_add/', help="IsoRank block matrices path.")
 
     args = parser.parse_args() 
 
@@ -707,7 +708,8 @@ if __name__ == "__main__":
     subsample = args.subsample
 
     net_folder = 'network_files_no_add/'
-    block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
+    block_mat_folder = args.block_mat_folder
+    #block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
     #block_mat_folder = 'block_matrix_test_folder/'
     print(args)
 
