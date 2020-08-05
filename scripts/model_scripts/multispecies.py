@@ -49,6 +49,12 @@ def minmax_scale_sparse(X):
     X_scaled = sparse.csr_matrix((data, X.indices, X.indptr))
     return X_scaled
 '''
+def ensure_dir(file_path):
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        print('Creating directory ' + directory)
+        os.makedirs(directory) 
+
 
 def aupr(label, score):
     """Computing real AUPR"""
@@ -685,6 +691,7 @@ if __name__ == "__main__":
     args = parser.parse_args() 
 
     results_path = args.results_path
+    ensure_dir(results_path)
     num_hyperparam_sets = args.num_hyperparam_sets
     annot_fname = args.annot
     ont = args.ont
