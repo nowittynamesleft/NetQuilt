@@ -13,6 +13,12 @@ from sklearn.preprocessing import minmax_scale
 
 
 # Edited for STRING v11 instead of v10.5
+def ensure_dir(file_path):
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        print('Creating directory ' + directory)
+        os.makedirs(directory) 
+
 
 def load_adj(fname_pckl, net_type='experimental'):
     """Load pickle file with string networks."""
@@ -296,6 +302,7 @@ def save_block_matrices(alpha, tax_ids, network_folder='./network_files/', blast
             print('Dumping to ' + block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl")
             pickle.dump(S, open(block_matrix_folder + tax_ids[ii] + "-" + tax_ids[jj] + "_alpha_" + str(alpha) + "_block_matrix.pckl", "wb"))
     '''
+    ensure_dir(block_matrix_folder)
     tax_id_combos = []
     taxa = list(tax_ids)
     if leave_species_out is not None:

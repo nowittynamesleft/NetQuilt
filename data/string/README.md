@@ -1,6 +1,6 @@
-This folder contains scripts that handle fetching data from string and running blastp in order to preprocess the data for dimensionality reduction and classification steps that are handled in the scripts/model_scripts folder.
+This folder contains scripts that handle fetching data from string and running blastp in order to preprocess the data for classification that is handled in the scripts/model_scripts folder.
 
-In order to create the random walk with restarts profiles the off diagonal block matrices (the interspecies connections based on blast e-values) to create the input S matrix to the autoencoder, run:
+In order to create the off diagonal IsoRank matrices (with the interspecies connections based on blast e-values) to create the input S matrix to the autoencoder, run:
 
 python pipeline.py {taxonomy ids delimited by commas} {alpha}
 
@@ -16,16 +16,27 @@ To run the resulting "511145,316407,316385,224308,71421,243273_generate_all_alph
 
 sbatch -N 4 -p ccb --ntasks-per-node 3 --exclusive --wrap "disBatch.py 511145,316407,316385,224308,71421,243273_generate_all_alpha_preprocessing.sh"
 
+---------- Sample Use Case ----------
 
-Okay, need to restructure this to run efficiently. Need step-based computation. Can automate later.
+Let's say you're interested in using annotations and networks from some well-studied bacteria to help annotate Prevotella copri (tax id 537011).
+Here is what you need to run:
 
+With a normal multi-CPU node:
 Step 1:
-Download networks, fastas, annotations from STRING.
+Download networks, fastas, annotations from STRING:
+    python step_1.py 511145,316407,316385,224308,71421,243273,537011
 Step 2:
-Compute BLAST between species and run random walk with restarts (RWR) for each species' network.
+Compute BLAST between species:
+    python step_2.py 511145,316407,316385,224308,71421,243273,537011
 Step 3:
-Compute IsoRank for all pairs of species using the BLAST files and each species' network file.
-Step 4:
-Run multispecies maxout neural network on the concatenated RWR and IsoRank matrices with annotations as labels.
+Compute IsoRank for all pairs of species using the BLAST files and each species' network file for a given alpha value (0.6 works well for bacterial networks in our study):
+    python step_3.py 511145,316407,316385,224308,71421,243273,537011 0.6
 
-I should have files that do these steps.
+With a GPU node:
+Step 4:
+Run multispecies maxout neural network on the IsoRank matrices with annotations as labels, and output predictions for all proteins.
+    (in NetQuilt/scripts/model_scripts/ directory)
+    python multispecies.py --tax_ids 511145,316407,316385,224308,71421,243273,537011 --valid_type full_prediction --model_name bacteria_including_prevotella 
+    --results_path ../results/test/ --data_folder ../../data/string/ --alpha 0.6 --annot ../../data/string/string_annot/511145-316407-316385-224308-71421-243273-537011_string.01_2019_annotations.pckl 
+    --ont molecular_function --test_goid_fname ../../data/string/string_annot/511145-316407-316385-224308-71421-243273-537011_molecular_function_train_goids.pckl 
+    --use_orig_features --use_nn_val --isorank_diag

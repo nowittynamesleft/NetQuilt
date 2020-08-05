@@ -289,6 +289,9 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
                 left_out_feat_fname = data_folder + network_folder + tax_ids[ii] + "_leftout_network_using_" + ','.join(other_taxa) + "_string.v11.0.pckl"
                 print('Loading ' + left_out_feat_fname)
                 Net = pickle.load(open(left_out_feat_fname, "rb"))
+            elif isorank_diag:
+                print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_networks_string.v11.0.pckl")
+                Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_networks_string.v11.0.pckl", "rb"))
             else:
                 print('Loading ' + data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl")
                 Net = pickle.load(open(data_folder + network_folder + tax_ids[ii] + "_rwr_features_string.v11.0.pckl", "rb")) # even if isorank diag is actually used, this file still has the protein ids, and so needs to be inputted, but I should restructure the files so that the isorank diag matrices also have the protein ids. Should fix this later.
@@ -650,9 +653,9 @@ def main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fn
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='DMSNE for protein function prediction')
+    parser = argparse.ArgumentParser(description='NetQuilt for protein function prediction')
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--tax_ids', type=str, help="Taxonomy ids of organisms used to train DMSNE, comma separated (i.e., 511145,316407,316385,224308,71421,243273 for model bacteria)")
+    parser.add_argument('--tax_ids', type=str, help="Taxonomy ids of organisms used to train NetQuilt, comma separated (i.e., 511145,316407,316385,224308,71421,243273 for model bacteria)")
     parser.add_argument('--valid_type', type=str, default='cv', help="Validation. Possible: {'cv', 'loso'}.")
     parser.add_argument('--model_name', type=str, default='final_res', help="Output filename keywords.")
     parser.add_argument('--results_path', type=str, default='./results/test_results', help="Saving results.")
@@ -677,6 +680,7 @@ if __name__ == "__main__":
     parser.add_argument('--lm_feat_path', type=str, default=None, help="Language model feature path.")
     parser.add_argument('--lm_only', action='store_true', default=False, help="Only use language model features.")
     parser.add_argument('--block_mat_folder', type=str, default='block_matrix_ones_init_test_files_no_add/', help="IsoRank block matrices path.")
+    parser.add_argument('--net_folder', type=str, default='network_files_no_add/', help="Network pickle file path.")
 
     args = parser.parse_args() 
 
@@ -707,7 +711,7 @@ if __name__ == "__main__":
     isorank_diag = args.isorank_diag
     subsample = args.subsample
 
-    net_folder = 'network_files_no_add/'
+    net_folder = args.net_folder
     block_mat_folder = args.block_mat_folder
     #block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
     #block_mat_folder = 'block_matrix_test_folder/'
