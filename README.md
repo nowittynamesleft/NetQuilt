@@ -1,6 +1,6 @@
 This is the repository for NetQuilt, a multispecies network-based protein function prediction method incorporating homology information with IsoRank.
 
-
+Uses tensorflow version 1.14.
 
 ---------- Sample Use Case ----------
 
