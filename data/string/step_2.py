@@ -7,6 +7,6 @@ tax_ids = sys.argv[1].split(',')
 net_dir = './network_files_no_add/'
 
 interspecies_blast(tax_ids)
-save_rwr_matrices(tax_ids, network_folder=net_dir)
+#save_rwr_matrices(tax_ids, network_folder=net_dir) # no need for this anymore
 
 print('Done.')
