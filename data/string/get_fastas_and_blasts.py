@@ -7,9 +7,15 @@ from multiprocessing import Pool
 
 # Edited for version 10.5 instead of 11
 
+def ensure_dir(file_path):
+    directory = os.path.dirname(file_path)
+    if not os.path.exists(directory):
+        print('Creating directory ' + directory)
+        os.makedirs(directory) 
 
 
 def get_fastas(taxa, fasta_folder='./fasta_files/'):
+    ensure_dir(fasta_folder)
     pool = Pool(multiprocessing.cpu_count())
     fnames = pool.starmap(get_single_fasta, zip(taxa, itertools.repeat(fasta_folder)))
     #fnames = [pool.map(get_single_fasta, args=(taxon, fasta_folder)) for taxon in taxa]
@@ -44,6 +50,7 @@ def get_single_fasta(taxon, fasta_folder):
     return fname
 
 def interspecies_blast(tax_ids, fasta_folder='./fasta_files/', blast_folder='./blast_files/'):
+    ensure_dir(blast_folder)
     print('Running BLAST on all combos.')
     combos = list(itertools.combinations_with_replacement(tax_ids, 2))
     print('Number of combos:')
