@@ -89,6 +89,9 @@ def save_single_network(taxon, network_folder):
 def save_networks(tax_ids, network_folder='./network_files_no_add/'):
     pool = Pool(multiprocessing.cpu_count())
     pool.starmap(save_single_network, zip(tax_ids, itertools.repeat(network_folder)))
+
+    #for tax in tax_ids:
+    #   save_single_network(tax, network_folder)
     '''
     for tax in tax_ids:
         print (tax)

@@ -4,6 +4,7 @@ import itertools
 from pathlib import Path
 import multiprocessing
 from multiprocessing import Pool
+import os
 
 # Edited for version 10.5 instead of 11
 
