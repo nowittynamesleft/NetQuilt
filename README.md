@@ -43,4 +43,6 @@ Run multispecies maxout neural network on the IsoRank matrices with annotations 
 python multispecies.py --tax_ids 511145,316407,224308,71421,243273,537011 --valid_type full_prediction --model_name bacteria_including_prevotella 
     --results_path ../results/test/ --data_folder ../../data/string/ --alpha 0.6 --annot ../../data/string/string_annot/511145-316407-224308-71421-243273-537011_string.01_2019_annotations.pckl 
     --ont molecular_function --test_goid_fname ../../data/string/string_annot/511145-316407-224308-71421-243273-537011_molecular_function_train_goids.pckl 
-    --use_orig_features --use_nn_val --isorank_diag
+    --use_orig_features --use_nn_val --isorank_diag --arch_set bac
+
+The results file that this step produces will be found at this path: ./scripts/results/test/bacteria_including_prevotella_alpha_0.6_use_nn_molecular_function_pred_file_complete.pckl

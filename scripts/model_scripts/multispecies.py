@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import argparse
+from utils import ensure_dir
 
 
 BATCH_SIZE = 128
@@ -49,11 +50,6 @@ def minmax_scale_sparse(X):
     X_scaled = sparse.csr_matrix((data, X.indices, X.indptr))
     return X_scaled
 '''
-def ensure_dir(file_path):
-    directory = os.path.dirname(file_path)
-    if not os.path.exists(directory):
-        print('Creating directory ' + directory)
-        os.makedirs(directory) 
 
 
 def aupr(label, score):
@@ -362,7 +358,7 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
     return X, string_prots, species_string_prots
 
 
-def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', arch_set=None):
+def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', arch_set=None, isorank_diag=True):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
@@ -370,7 +366,7 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     goterms = Annot['go_IDs'][ont]
 
     print('Using orig features')
-    X_to_pred, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
+    X_to_pred, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, isorank_diag=isorank_diag)
 
     # get common indices annotations
     annot_idx, string_idx = get_common_indices(annot_prots, string_prots)
@@ -738,7 +734,7 @@ if __name__ == "__main__":
         predicted_net_cv_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, arch_set=arch_set, save_only=save_only, num_hyperparam_sets=num_hyperparam_sets, isorank_diag=isorank_diag)
     elif val == 'full_prediction':
         print('Full prediction setting. Training on all annotated proteins given, predicting on all proteins given.')
-        predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set)
+        predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set, isorank_diag=isorank_diag)
     else:
         print('Wrong validation setting. Must either be cv or loso.')
     '''

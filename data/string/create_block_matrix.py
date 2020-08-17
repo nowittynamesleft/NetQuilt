@@ -10,6 +10,7 @@ import itertools
 import multiprocessing
 from os import path
 from sklearn.preprocessing import minmax_scale
+import os
 
 
 # Edited for STRING v11 instead of v10.5
