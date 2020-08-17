@@ -10,7 +10,7 @@ import subprocess
 
 # Edited for string v11 instead of 10.5
 
-def save_annots(tax_ids):
+def save_annots(tax_ids, min_coverage=0.005, max_coverage=0.05):
     # read *.obo file
     try:
         graph = obonet.read_obo(open('./go-basic.obo', 'r'))
@@ -121,8 +121,6 @@ def save_annots(tax_ids):
     name_prefix = '-'.join(tax_ids)
     #pickle.dump(Annot, open('./string_annot/' + name_prefix + '_string.04_2015_annotations.pckl', 'wb'))
     pickle.dump(Annot, open(annot_folder + name_prefix + '_string.01_2019_annotations.pckl', 'wb'))
-    min_coverage = 0.005
-    max_coverage = 0.05
     for ont in ['molecular_function', 'biological_process', 'cellular_component']:
         num_prots = Annot['annot'][ont].shape[0]
         go_term_coverages = np.sum(Annot['annot'][ont], axis=0)/num_prots

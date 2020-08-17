@@ -18,9 +18,9 @@ With a normal multi-CPU node, in NetQuilt/data/string directory:
 
 Step 1:
 
-Download networks, fastas, annotations from STRING:
+Download networks, fastas, annotations from STRING. Selected GO terms annotate at minimum 0.5% (proportion 0.005) of all proteins in selected networks, and maximum 5% (proportion 0.05) all proteins in selected networks:
 
-python step_1.py 511145,316407,224308,71421,243273,537011
+python step_1.py 511145,316407,224308,71421,243273,537011 0.005 0.05
 
 Step 2:
 
@@ -46,3 +46,4 @@ python multispecies.py --tax_ids 511145,316407,224308,71421,243273,537011 --vali
     --use_orig_features --use_nn_val --isorank_diag --arch_set bac
 
 The results file that this step produces will be found at this path: ./scripts/results/test/bacteria_including_prevotella_alpha_0.6_use_nn_molecular_function_pred_file_complete.pckl
+This file contains the full prediction matrix for the GO terms chosen by the thresholds chosen in the first step.
