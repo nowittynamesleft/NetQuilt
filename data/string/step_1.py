@@ -9,6 +9,6 @@ tax_ids = sys.argv[1].split(',')
 
 net_dir = './network_files_no_add/'
 save_annots(tax_ids)
-save_networks(tax_ids, network_folder=net_dir)
 fasta_fnames = get_fastas(tax_ids, fasta_folder='./fasta_files/')
+save_networks(tax_ids, network_folder=net_dir)
 print('Done')
