@@ -362,7 +362,7 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
     return X, string_prots, species_string_prots
 
 
-def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', arch_set=None):
+def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', arch_set=None, test_set_id_list=None):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
@@ -371,6 +371,15 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
 
     print('Using orig features')
     X_to_pred, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
+    if test_set_id_list is not None:
+        # TODO 
+        to_pred_inds = []
+        for prot in test_set_id_list:
+            to_pred_inds.append(string_prots.index(prot))
+        to_pred_inds = np.array(to_pred_inds)
+        X_test_list = X_to_pred[to_pred_inds, :]
+        
+
 
     # get common indices annotations
     annot_idx, string_idx = get_common_indices(annot_prots, string_prots)
@@ -389,9 +398,11 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     Y = Y[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
     print(np.count_nonzero(Y))
-    #output_projection_files(X, Y, model_name, ont, list(test_goids))
-
-    pred_file = train_and_predict_all_orgs(X, Y, X_to_pred, string_prots, test_goids, model_name, ont, arch_set=arch_set)
+    
+    if test_set_id_list is not None:
+        pred_file = train_and_predict_all_orgs(X, Y, X_test_list, test_set_id_list, test_goids, model_name, ont, arch_set=arch_set)
+    else:
+        pred_file = train_and_predict_all_orgs(X, Y, X_to_pred, string_prots, test_goids, model_name, ont, arch_set=arch_set)
     pickle.dump(pred_file, open(results_path + model_name + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
 
 
@@ -687,6 +698,8 @@ if __name__ == "__main__":
     parser.add_argument('--lm_only', action='store_true', default=False, help="Only use language model features.")
     parser.add_argument('--block_mat_folder', type=str, default='block_matrix_ones_init_test_files_no_add/', help="IsoRank block matrices path.")
     parser.add_argument('--net_folder', type=str, default='network_files_no_add/', help="Network pickle file path.")
+    parser.add_argument('--test_id_list', type=str, default=None, help="List of STRING ids to predict on as a test set (only for --list_pred validation option).")
+
 
     args = parser.parse_args() 
 
@@ -739,8 +752,11 @@ if __name__ == "__main__":
     elif val == 'full_prediction':
         print('Full prediction setting. Training on all annotated proteins given, predicting on all proteins given.')
         predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set)
+    elif val == 'list_pred':
+        print('Training on all annotated proteins of selected taxa that are not in test set ID list.')
+        predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set, test_set_id_list=args.test_set_id_list)
     else:
-        print('Wrong validation setting. Must either be cv or loso.')
+        print('Wrong validation setting. Must either be cv, loso, full_prediction, or list_pred (with list of string IDs provided in the --test_id_list argument).')
     '''
     elif val == 'th':
         uniprot_mapping_fname = str(sys.argv[7])
