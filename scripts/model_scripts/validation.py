@@ -17,6 +17,7 @@ import pickle
 import tensorflow as tf
 from keras import backend as K
 from tensorflow.python.ops import math_ops
+from utils import ensure_dir
 
 
 import datetime
@@ -93,8 +94,8 @@ def trapezoidal_integral_approx(t, y):
             name='trapezoidal_integral_approx')
 
 
-def real_AUPR(label, score):
-    """Computing real AUPR . By Vlad and Meet"""
+def micro_AUPR(label, score):
+    """Computing AUPR (micro-averaging)"""
     label = label.flatten()
     score = score.flatten()
 
@@ -115,7 +116,7 @@ def real_AUPR(label, score):
     return pr
 
 
-def real_AUPR_tensors(label, score):
+def micro_AUPR_tensors(label, score):
     """Computing AUPR for use in keras metrics argument for fit function"""
     label = tf.reshape(label, [-1])
     score = tf.reshape(score, [-1])
@@ -140,7 +141,7 @@ def real_AUPR_tensors(label, score):
     return pr
 
 
-def real_AUPR_tensors_packed(packed):
+def micro_AUPR_tensors_packed(packed):
     """Computing AUPR for use in keras metrics argument for fit function"""
     label = packed[0]
     score = packed[1]
@@ -169,7 +170,7 @@ def real_AUPR_tensors_packed(packed):
     return pr
 
 
-def real_AUPR_macro_tensors(label, score):
+def micro_AUPR_macro_tensors(label, score):
     """Computing AUPR for use in keras metrics argument for fit function"""
     #label = tf.reshape(label, [-1])
     #score = tf.reshape(score, [-1])
@@ -180,7 +181,7 @@ def real_AUPR_macro_tensors(label, score):
     #f = tf.cond(tf.not_equal(tf.shape(idx)[0], tf.constant(0)), lambda: tf.reduce_max(tf.gather(f, idx)), lambda: tf.constant(0.0))
     label_vecs = tf.split(label, score.shape[1], axis=1)
     score_vecs = tf.split(score, score.shape[1], axis=1)
-    pr_vals = tf.map_fn(real_AUPR_tensors_packed, (label_vecs, score_vecs))
+    pr_vals = tf.map_fn(micro_AUPR_tensors_packed, (label_vecs, score_vecs))
     pr = tf.reduce_mean(pr_vals)
 
     return pr
@@ -205,14 +206,14 @@ def evaluate_performance(y_test, y_score, y_pred):
     perf["pr_macro"] = 0.0
     n = 0
     for i in range(n_classes):
-        perf[i] = real_AUPR(y_test[:, i], y_score[:, i])
+        perf[i] = micro_AUPR(y_test[:, i], y_score[:, i])
         if sum(y_test[:, i]) > 0:
             n += 1
             perf["pr_macro"] += perf[i]
     perf["pr_macro"] /= n
 
     # Compute micro-averaged AUPR
-    perf["pr_micro"] = real_AUPR(y_test, y_score)
+    perf["pr_micro"] = micro_AUPR(y_test, y_score)
 
     # Computes accuracy
     perf['acc'] = accuracy_score(y_test, y_pred)
@@ -308,6 +309,7 @@ def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_pr
     #downsample_rate = 0.01 # for bacteria
     #downsample_rate = 0.001 # for eukaryotes
 
+    ensure_dir('hyperparam_searches/')
     exp_name = 'hyperparam_searches/' + keyword + '-' + ont + 'loso_val'
     # no architecture search, just run it
     if arch_set == 'bac':
@@ -335,7 +337,7 @@ def leave_one_species_out_val_nn(X_test_species, y_test_species, test_species_pr
         params['in_shape'] = [X_train.shape[1]]
         params['out_shape'] = [y_train.shape[1]]
         keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-        clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True)) # this is training on half the training data, should probably not do this
+        clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(micro_AUPR, greater_is_better=True)) # this is training on half the training data, should probably not do this
         search_result = clf.fit(X_train, y_train)
         # summarize results
         means = search_result.cv_results_['mean_test_score']
@@ -809,17 +811,17 @@ def build_and_fit_nn_classifier(X, y, params, X_val=None, y_val=None, verbose=0)
     model = Model(inputs=input_layer, outputs=output_layer)
     optim = Adagrad(lr=params['learning_rate'])
     #model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[f1_score])
-    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[real_AUPR_tensors])
+    model.compile(optimizer=optim, loss='binary_crossentropy', metrics=[micro_AUPR_tensors])
     model.summary()
    
-    early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=30)
+    early = EarlyStopping(monitor='val_micro_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=30)
     #early = EarlyStopping(monitor='val_loss', mode='min', verbose=1, min_delta=0, patience=30)
-    #early = EarlyStopping(monitor='val_real_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=5)
+    #early = EarlyStopping(monitor='val_micro_AUPR_tensors', mode='max', verbose=1, min_delta=0, patience=5)
     print('Fitting model now:')
     history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose, callbacks=[early])
     #history = model.fit(X_train, y_train, validation_data=[X_val, y_val], batch_size=int(params['batch_size']),  epochs=int(params['epochs']), verbose=verbose)
     y_pred_val = model.predict(X_val)
-    micro_val = real_AUPR(y_val, y_pred_val)
+    micro_val = micro_AUPR(y_val, y_pred_val)
     print('Micro aupr of validation set')
     print(micro_val)
     plt.plot(history.history['loss'])
@@ -836,8 +838,8 @@ def build_and_fit_nn_classifier(X, y, params, X_val=None, y_val=None, verbose=0)
     plt.savefig(loss_string)
     plt.close()
 
-    plt.plot(history.history['real_AUPR_tensors'])
-    plt.plot(history.history['val_real_AUPR_tensors'])
+    plt.plot(history.history['micro_AUPR_tensors'])
+    plt.plot(history.history['val_micro_AUPR_tensors'])
     plt.title('Model micro AUPR')
     aupr_string = param_dict_string + '_aupr.png'
     print('Saving ' + aupr_string)
@@ -969,6 +971,8 @@ def train_and_predict_all_orgs(X, y, X_to_pred, pred_protein_names, go_terms, ke
         print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 
     params = {param_name:param_list[0] for (param_name, param_list) in params.items()}
+
+    ensure_dir('hyperparam_searches/')
     exp_name = 'hyperparam_searches/' + keyword + '-' + ont
     params['exp_name'] = exp_name
     print ("### Using full training data...")
@@ -1077,6 +1081,7 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
         print ("### [Trial %d] Perfom cross validation...." % (it))
         print ("Train samples=%d; #Validation samples=%d #Test samples=%d" % (y_train.shape[0], y_test_species_val.shape[0], y_test.shape[0]))
 
+        ensure_dir('hyperparam_searches/')
         exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-fold-' + str(jj)
         if arch_set == 'bac':
             # for bacteria
@@ -1103,7 +1108,7 @@ def one_spec_cross_val(X_test_species, y_test_species, test_species_prots,
             params['in_shape'] = [X_train.shape[1]]
             params['out_shape'] = [y_train.shape[1]]
             keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True)) # this is training on half the training data, should probably not do this
+            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(micro_AUPR, greater_is_better=True)) # this is training on half the training data, should probably not do this
             search_result = clf.fit(X_train, y_train)
             # summarize results
             means = search_result.cv_results_['mean_test_score']
@@ -1214,7 +1219,7 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
         print ("Train samples=%d; #Test samples=%d" % (y_train.shape[0], y_test.shape[0]))
         #downsample_rate = 0.01 # for bacteria
         #downsample_rate = 0.001 # for eukaryotes
-
+        ensure_dir('hyperparam_searches/')
         exp_name = 'hyperparam_searches/' + keyword + '-' + ont + '-fold-' + str(jj)
         if arch_set == 'bac':
             # for bacteria
@@ -1234,7 +1239,7 @@ def cross_validation_nn(X, y, protein_names, go_terms, keyword, ont, n_trials=5,
             params['in_shape'] = [X_train.shape[1]]
             params['out_shape'] = [y_train.shape[1]]
             keras_model = KerasClassifier(build_fn=build_maxout_nn_classifier)
-            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(real_AUPR, greater_is_better=True))
+            clf = RandomizedSearchCV(keras_model, params, cv=2, n_iter=num_hyperparam_sets, scoring=make_scorer(micro_AUPR, greater_is_better=True))
             search_result = clf.fit(X_train, y_train)
             # summarize results
             means = search_result.cv_results_['mean_test_score']

@@ -5,13 +5,18 @@ import csv
 import obonet
 import sys
 from os.path import isfile
+import os
 import subprocess
 
 # Edited for string v11 instead of 10.5
 
-def save_annots(tax_ids):
+def save_annots(tax_ids, min_coverage=0.005, max_coverage=0.05):
     # read *.obo file
-    graph = obonet.read_obo(open('./go-basic.obo', 'r'))
+    try:
+        graph = obonet.read_obo(open('./go-basic.obo', 'r'))
+    except FileNotFoundError:
+        os.system('wget http://purl.obolibrary.org/obo/go/go-basic.obo')
+        graph = obonet.read_obo(open('./go-basic.obo', 'r'))
 
     root_terms = ['GO:0003674', 'GO:0008150', 'GO:0005575']
     evidence_codes = ['EXP', 'IDA', 'IPI', 'IMP', 'IGI', 'IEP', 'TAS', 'IC', 'CURATED']
@@ -83,7 +88,7 @@ def save_annots(tax_ids):
             #if tax_id in tax_ids and evidence in evidence_codes and go_id in graph and go_id not in root_terms:
             if tax_id in tax_ids and go_id in graph and go_id not in root_terms:
                 #string_id = tax_id + '.' + string_id # already is the case for version 11
-                namespace = graph.node[go_id]['namespace']
+                namespace = graph.nodes[go_id]['namespace']
                 lines.append([namespace, string_id, go_id])
                 if string_id not in string2idx:
                     string2idx[string_id] = ii
@@ -116,8 +121,6 @@ def save_annots(tax_ids):
     name_prefix = '-'.join(tax_ids)
     #pickle.dump(Annot, open('./string_annot/' + name_prefix + '_string.04_2015_annotations.pckl', 'wb'))
     pickle.dump(Annot, open(annot_folder + name_prefix + '_string.01_2019_annotations.pckl', 'wb'))
-    min_coverage = 0.005
-    max_coverage = 0.05
     for ont in ['molecular_function', 'biological_process', 'cellular_component']:
         num_prots = Annot['annot'][ont].shape[0]
         go_term_coverages = np.sum(Annot['annot'][ont], axis=0)/num_prots
