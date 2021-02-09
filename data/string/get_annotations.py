@@ -84,7 +84,6 @@ def process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_
         print(chosen_go_IDs)
         print(len(chosen_go_IDs))
         pickle.dump(chosen_go_IDs, open(annot_folder + name_prefix + '_' + ont + '_train_goids.pckl', 'wb'))
-    return ii, jj, Annot
 
 
 def process_version_10_annot_file(graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage):
@@ -182,7 +181,6 @@ def process_version_10_annot_file(graph, root_terms, evidence_codes, go_path, an
         with open(annot_folder + name_prefix + '_' + ont + '_train_gonames.txt', 'w') as f:
             for i, go_name in enumerate(chosen_go_names):
                 f.write("%s\t%s\n" % (chosen_go_IDs[i], go_name))
-    return ii, jj, Annot
 
 
 def save_annots(tax_ids, annot_folder='./string_annot/', min_coverage=0.005, max_coverage=0.05, version='11', evidence='all'):
@@ -218,9 +216,9 @@ def save_annots(tax_ids, annot_folder='./string_annot/', min_coverage=0.005, max
         subprocess.run(['gunzip', '-f', go_path + '.gz'])
 
     if version == '11':
-        ii, jj, Annot = process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_coverage, max_coverage)
+        process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_coverage, max_coverage)
     elif version == '10':
-        ii, jj, Annot = process_version_10_annot_file(graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage)
+        process_version_10_annot_file(graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage)
 
     
 
