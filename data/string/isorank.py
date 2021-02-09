@@ -162,8 +162,8 @@ def IsoRank(A1, A2, R_12, alpha=0.5, maxiter=100, rand_init=False, ones_init=Fal
     if sparsity_1 < 0.5 or sparsity_2 < 0.5:
         print('Using dense matrices instead; matrices are not sparse enough')
         dense = True
-        S = S/(S.shape[0]*S.shape[1])
-        S = S.todense()
+        #S = S/(S.shape[0]*S.shape[1])
+        #S = S.todense()
         A1 = A1.todense()
         A2 = A2.todense()
         R_normalized = R_normalized.todense()
