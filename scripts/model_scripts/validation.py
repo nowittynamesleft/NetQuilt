@@ -17,7 +17,7 @@ import pickle
 import tensorflow as tf
 from keras import backend as K
 from tensorflow.python.ops import math_ops
-from utils import ensure_dir
+from utils import ensure_dir, micro_AUPR
 
 
 import datetime
@@ -92,28 +92,6 @@ def trapezoidal_integral_approx(t, y):
             math_ops.multiply(t[1:] - t[:-1],
                 (y[:-1] + y[1:]) / 2.), 
             name='trapezoidal_integral_approx')
-
-
-def micro_AUPR(label, score):
-    """Computing AUPR (micro-averaging)"""
-    label = label.flatten()
-    score = score.flatten()
-
-    order = np.argsort(score)[::-1]
-    label = label[order]
-
-    P = np.count_nonzero(label)
-    # N = len(label) - P
-
-    TP = np.cumsum(label, dtype=float)
-    PP = np.arange(1, len(label)+1, dtype=float)  # python
-
-    x = np.divide(TP, P)  # recall
-    y = np.divide(TP, PP)  # precision
-
-    pr = np.trapz(y, x)
-
-    return pr
 
 
 def micro_AUPR_tensors(label, score):
@@ -759,7 +737,6 @@ def build_and_fit_nn_classifier(X, y, params, X_val=None, y_val=None, verbose=0)
     else:
         X_train = X
         y_train = y
-    print(X_train[0][X_train[0] != 0])
     K.clear_session()
     input_layer = Input(shape=(X_train.shape[1],))
     '''
@@ -965,8 +942,9 @@ def train_and_predict_all_orgs(X, y, X_to_pred, pred_protein_names, go_terms, ke
         params = BAC_PARAMS
     elif arch_set == 'euk':
         # for eukaryotes
-        print("RUNNING MODEL ARCHITECTURES FOR EUKARYOTES")
-        params = EUK_PARAMS
+        print("RUNNING MODEL ARCHITECTURE FOR EUKARYOTES")
+        print('Not searching through params')
+        params = EUK_PARAMS_NO_SEARCH
     else:
         print('No arch_set chosen! Need to specify in order to know which hyperparameter sets to search through for cross-validation using neural networks with original features.')
 

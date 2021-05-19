@@ -7,8 +7,8 @@ from get_fastas_and_blasts import interspecies_blast
 tax_ids = sys.argv[1].split(',')
 string_version = sys.argv[2]
 
-net_dir = './network_files_no_add_string_v10/'
+net_dir = './network_files_no_add/'
 
-interspecies_blast(tax_ids, fasta_folder='./fasta_files_string_v10/', blast_folder='./blast_files_string_v10/', version=string_version)
+interspecies_blast(tax_ids, fasta_folder='./fasta_files/', blast_folder='./blast_files/', version=string_version)
 
 print('Done.')

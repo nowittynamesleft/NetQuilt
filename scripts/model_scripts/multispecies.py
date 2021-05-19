@@ -25,12 +25,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 import argparse
-from utils import ensure_dir
+from utils import ensure_dir, get_common_indices
 
 
 BATCH_SIZE = 128
-NB_EPOCH = 100
-#NB_EPOCH = 1
 LR = 0.01
 
 # python multispecies.py annot_fname ont model_name data_folder tax_ids alpha test_go_id_fname
@@ -113,7 +111,7 @@ def export_history(history, model_name, kwrd, results_path=None):
     plt.savefig(results_path + model_name.split('-')[0] + '_' + kwrd + '_loss.png', bbox_inches='tight')
 
 
-def build_model(X, input_dims, arch, mtype='mae', nf=0.5, std=1.0, epochs=NB_EPOCH, batch_size=BATCH_SIZE):
+def build_model(X, input_dims, arch, mtype='mae', nf=0.5, std=1.0, epochs=300, batch_size=BATCH_SIZE):
     if mtype == 'mae':
         #model = build_MDA(input_dims, arch)
         model = build_denoising_MDA(input_dims, arch)
@@ -155,15 +153,6 @@ def build_model(X, input_dims, arch, mtype='mae', nf=0.5, std=1.0, epochs=NB_EPO
     return model, history
 
 
-def get_common_indices(annot_prots, string_prots):
-    common_prots = list(set(string_prots).intersection(annot_prots))
-    print ("### Number of prots in intersection:", len(common_prots))
-    annot_idx = [annot_prots.index(prot) for prot in common_prots] # annot_idx is the array of indices in the annotation protein list of each protein common to both annotation and string protein lists
-    string_idx = [string_prots.index(prot) for prot in common_prots] # same thing for string protein list
-
-    return annot_idx, string_idx
-
-
 def build_NN(input_dim, encoding_dims, go_edgelist=None):
     """
     Funciton for building Neural Network (NN) model.
@@ -186,29 +175,6 @@ def build_NN(input_dim, encoding_dims, go_edgelist=None):
     print (model.summary())
 
     return model
-
-
-def train_NN_model(X, Y, encoding_dims, epochs=NB_EPOCH, batch_size=BATCH_SIZE):
-    if isinstance(X, list):
-        X_train, X_valid = X
-        Y_train, Y_valid = Y
-        input_dim = X_train.shape[1]
-        output_dim = Y_train.shape[1]
-    else:
-        X_train, X_valid, Y_train, Y_valid = train_test_split(X, Y, test_size=0.2)
-        input_dim = X_train.shape[1]
-        output_dim = Y_train.shape[1]
-    encoding_dims.append(output_dim)
-
-    # Build the model
-    model = build_NN(input_dim, encoding_dims)
-    # Fitting the model
-    history = model.fit(X_train, Y_train, epochs=epochs,
-                        batch_size=batch_size, shuffle=True,
-                        validation_data=(X_valid, Y_valid),
-                        callbacks=[EarlyStopping(monitor='val_loss', patience=20, verbose=1)])
-
-    return model, history
 
 
 def get_mapping_dict(mapping_fname): 
@@ -358,32 +324,48 @@ def load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, a
     return X, string_prots, species_string_prots
 
 
-def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', arch_set=None, test_set_id_list=None):
+def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path='./results/test_results', block_matrix_folder='block_matrix_files/', network_folder='network_files/', arch_set=None, test_id_list=None, isorank_diag=True, lm_feat_path=None, lm_only=False):
     #  Load annotations
     Annot = pickle.load(open(annot_fname, 'rb'))
     Y = np.asarray(Annot['annot'][ont].todense())
     annot_prots = Annot['prot_IDs']
     goterms = Annot['go_IDs'][ont]
-
-    print('Using orig features')
-    X_to_pred, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha)
-    if test_set_id_list is not None:
-        # TODO 
+    if lm_only:
+        string_prots, X_all = load_language_model_embeddings(lm_feat_path, tax_ids)
+    else:
+        print('Using orig features')
+        X_all, string_prots, _ = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, isorank_diag=isorank_diag)
+    if test_id_list is not None:
         to_pred_inds = []
-        for prot in test_set_id_list:
-            to_pred_inds.append(string_prots.index(prot))
+        not_found = 0
+        found_test_id_list = []
+        for prot in test_id_list:
+            if prot in string_prots:
+                to_pred_inds.append(string_prots.index(prot))
+                found_test_id_list.append(prot)
+            else:
+                not_found += 1 
         to_pred_inds = np.array(to_pred_inds)
-        X_test_list = X_to_pred[to_pred_inds, :]
-        
-
-    X_to_pred, string_prots, species_string_prots = load_block_mats(data_folder, tax_ids, network_folder, block_matrix_folder, alpha, isorank_diag=isorank_diag)
+        X_test_list = X_all[to_pred_inds, :]
+        print('Number of test set prots list: ' + str(X_test_list.shape[0]))
+        print('Number of test set prots not found: ' + str(not_found))
+        # remove from X_all
+        test_mask = np.zeros(X_all.shape[0], dtype=bool)
+        test_mask[to_pred_inds] = True
+        X_to_train = X_all[~test_mask, :]
+        del X_all
+        for ind in sorted(to_pred_inds, reverse=True):
+            string_prots.pop(ind) # remove test proteins from consideration
 
     # get common indices annotations
     annot_idx, string_idx = get_common_indices(annot_prots, string_prots)
 
     # aligned data
-    X = X_to_pred[string_idx]
-    Y = Y[annot_idx]
+    if test_id_list is not None:
+        X_to_train = X_to_train[string_idx, :]
+    else:
+        X_to_train = X_all[string_idx, :]
+    Y_to_train = Y[annot_idx]
 
     aligned_net_prots = np.array(string_prots)[string_idx] # don't actually need this to save predictions for ALL string prots
 
@@ -391,15 +373,15 @@ def predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test
     test_goids = pickle.load(open(test_goid_fname, 'rb'))
     test_funcs = [goterms.index(goid) for goid in test_goids]
     print('Number of nonzeros in Y matrix total:')
-    print(np.count_nonzero(Y))
-    Y = Y[:, test_funcs]
+    print(np.count_nonzero(Y_to_train))
+    Y_to_train = Y_to_train[:, test_funcs]
     print('Number of nonzeros in Y matrix with these test funcs:')
-    print(np.count_nonzero(Y))
+    print(np.count_nonzero(Y_to_train))
     
-    if test_set_id_list is not None:
-        pred_file = train_and_predict_all_orgs(X, Y, X_test_list, test_set_id_list, test_goids, model_name, ont, arch_set=arch_set)
+    if test_id_list is not None:
+        pred_file = train_and_predict_all_orgs(X_to_train, Y_to_train, X_test_list, found_test_id_list, test_goids, model_name, ont, arch_set=arch_set)
     else:
-        pred_file = train_and_predict_all_orgs(X, Y, X_to_pred, string_prots, test_goids, model_name, ont, arch_set=arch_set)
+        pred_file = train_and_predict_all_orgs(X_to_train, Y_to_train, X_all, string_prots, test_goids, model_name, ont, arch_set=arch_set)
     pickle.dump(pred_file, open(results_path + model_name + '_use_nn_' + ont + '_pred_file_complete.pckl', 'wb'))
 
 
@@ -407,7 +389,7 @@ def load_language_model_embeddings(lm_feat_path, tax_ids):
     all_prot_ids = []
     all_embeddings = []
     for tax_id in tax_ids:
-        tax_fname = lm_feat_path + '/' + tax_id + '_language_model_features.pckl'
+        tax_fname = lm_feat_path + tax_id + '_language_model_features.pckl'
         curr_lm_embedding_dict = pickle.load(open(tax_fname,'rb'))
         prot_ids = curr_lm_embedding_dict['prot_ids']
         embeddings = curr_lm_embedding_dict['features']
@@ -670,7 +652,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='NetQuilt for protein function prediction')
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--tax_ids', type=str, help="Taxonomy ids of organisms used to train NetQuilt, comma separated (i.e., 511145,316407,316385,224308,71421,243273 for model bacteria)")
-    parser.add_argument('--valid_type', type=str, default='cv', help="Validation. Possible: {'cv', 'loso'}.")
+    parser.add_argument('--valid_type', type=str, default='cv', help="Validation. Possible: {'cv', 'loso', 'full_prediction', 'list_pred'}.")
     parser.add_argument('--model_name', type=str, default='final_res', help="Output filename keywords.")
     parser.add_argument('--results_path', type=str, default='./results/test_results', help="Saving results.")
     parser.add_argument('--data_folder', type=str, help="Data folder.")
@@ -709,6 +691,9 @@ if __name__ == "__main__":
     data_folder = args.data_folder
     if data_folder[-1] != '/':
         data_folder += '/'
+    lm_feat_path = args.lm_feat_path
+    if lm_feat_path is not None and lm_feat_path[-1] != '/':
+        lm_feat_path += '/'
 
     tax_ids = args.tax_ids
     alpha = args.alpha
@@ -732,10 +717,12 @@ if __name__ == "__main__":
     block_mat_folder = args.block_mat_folder
     #block_mat_folder = 'block_matrix_ones_init_test_files_no_add/'
     #block_mat_folder = 'block_matrix_test_folder/'
+    if args.test_id_list is not None:
+        test_id_list = pickle.load(open(args.test_id_list, 'rb'))['STRING_IDs'].tolist()
     print(args)
 
     if val == 'cv':
-        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials, save_only=save_only, isorank_diag=isorank_diag, subsample=subsample, lm_feat_path=args.lm_feat_path, lm_only=args.lm_only)
+        main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, test_annot_fname=test_annot_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, num_hyperparam_sets=num_hyperparam_sets, arch_set=arch_set, n_trials=n_trials, save_only=save_only, isorank_diag=isorank_diag, subsample=subsample, lm_feat_path=lm_feat_path, lm_only=args.lm_only)
     elif val == 'loso':
         try:
             assert test_tax_id != None
@@ -748,14 +735,10 @@ if __name__ == "__main__":
         predicted_net_cv_main(annot_fname, ont, model_name, data_folder, tax_ids, test_tax_id, test_annot_fname, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, use_orig_feats=use_orig_features, use_nn=use_nn, arch_set=arch_set, save_only=save_only, num_hyperparam_sets=num_hyperparam_sets, isorank_diag=isorank_diag)
     elif val == 'full_prediction':
         print('Full prediction setting. Training on all annotated proteins given, predicting on all proteins given.')
-<<<<<<< HEAD
         predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set)
     elif val == 'list_pred':
         print('Training on all annotated proteins of selected taxa that are not in test set ID list.')
-        predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set, test_set_id_list=args.test_set_id_list)
-=======
-        predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set, isorank_diag=isorank_diag)
->>>>>>> 2b7fe178f674e612fff285ca36d9000becc9f89f
+        predict_main(annot_fname, ont, model_name, data_folder, tax_ids, alpha, test_goid_fname, results_path=results_path, block_matrix_folder=block_mat_folder, network_folder=net_folder, arch_set=arch_set, test_id_list=test_id_list, lm_feat_path=lm_feat_path, lm_only=args.lm_only)
     else:
         print('Wrong validation setting. Must either be cv, loso, full_prediction, or list_pred (with list of string IDs provided in the --test_id_list argument).')
     '''

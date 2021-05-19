@@ -73,42 +73,37 @@ def combine_networks_no_textmining(string_dict):
     return S
 
 
-def save_single_network(taxon, network_folder):
+def save_single_network(taxon, network_folder, version='11'):
     print (taxon)
     #fname = tax + '.protein.links.detailed.v10.5.txt.gz'
-    fname = taxon + '.protein.links.detailed.v11.0.txt.gz'
+    if version == '11':
+        fname = taxon + '.protein.links.detailed.v11.0.txt.gz'
+    elif version == '10':
+        fname = taxon + '.protein.links.detailed.v10.txt.gz'
+    else:
+        print('Wrong version. Must be \'10\' or \'11\'.')
     try:
         String = load_string_nets(network_folder + fname[:-3])
     except FileNotFoundError:
         #subprocess.run(['wget', '-P', network_folder, 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
-        subprocess.run(['wget', '-P', network_folder, 'https://stringdb-static.org/download/protein.links.detailed.v11.0/' + fname])
+        if version == '11':
+            subprocess.run(['wget', '-P', network_folder, 'https://stringdb-static.org/download/protein.links.detailed.v11.0/' + fname])
+        elif version == '10':
+            subprocess.run(['wget', '-P', network_folder, 'version10.string-db.org/download/protein.links.detailed.v10/' + fname])
         subprocess.run(['gunzip', '-f', network_folder + fname])
         String = load_string_nets(network_folder + fname[:-3])
     pickle.dump(String, open(network_folder + taxon + "_networks_string.v11.0.pckl", "wb"))
 
-def save_networks(tax_ids, network_folder='./network_files_no_add/'):
-    pool = Pool(multiprocessing.cpu_count())
-    pool.starmap(save_single_network, zip(tax_ids, itertools.repeat(network_folder)))
+def save_networks(tax_ids, network_folder='./network_files_no_add/', version='11'):
+    #pool = Pool(multiprocessing.cpu_count())
+    #pool.starmap(save_single_network, zip(tax_ids, itertools.repeat(network_folder), itertools.repeat(version)))
 
     #for tax in tax_ids:
     #   save_single_network(tax, network_folder)
-    '''
     for tax in tax_ids:
         print (tax)
         #fname = tax + '.protein.links.detailed.v10.5.txt.gz'
-        fname = tax + '.protein.links.detailed.v11.0.txt.gz'
-        try:
-            String = load_string_nets(network_folder + fname[:-3])
-        except FileNotFoundError:
-            #subprocess.run(['wget', '-P', network_folder, 'https://version-10-5.string-db.org/download/protein.links.detailed.v10.5/' + fname])
-            subprocess.run(['wget', '-P', network_folder, 'https://stringdb-static.org/download/protein.links.detailed.v11.0/' + fname])
-            subprocess.run(['gunzip', '-f', network_folder + fname])
-            String = load_string_nets(network_folder + fname[:-3])
-        pickle.dump(String, open(network_folder + tax + "_networks_string.v11.0.pckl", "wb"))
-        #String = pickle.load(open("./prevotella_melaninogenica/" + tax + "_networks_string.v10.5.pckl", "rb"))
-        #net = String['nets']['experimental'].todense()
-        #print (tax,  net.shape[0], np.count_nonzero(net)/2)
-    '''
+        save_single_network(tax, network_folder, version=version)
 
 if __name__ == "__main__":
     #tax_ids = ['199310', '155864', '511145', '316407', '316385', '220664', '208964', '553174']

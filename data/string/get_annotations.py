@@ -7,10 +7,11 @@ import sys
 from os.path import isfile
 import os
 import subprocess
+import argparse
 
 # Edited for string v11 instead of 10.5
 
-def process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_coverage, max_coverage):
+def process_version_11_annot_file(tax_ids, graph, root_terms, go_path, annot_folder, min_coverage, max_coverage):
 
     Annot = {}
     Annot['prot_IDs'] = []
@@ -33,6 +34,7 @@ def process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_
     jj['biological_process'] = 0
     jj['cellular_component'] = 0
 
+    lines = []
     with open(go_path) as tsvfile:
         reader = csv.reader(tsvfile, delimiter='\t')
         next(reader) # skip header for version 11
@@ -87,7 +89,7 @@ def process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_
     return ii, jj, Annot
 
 
-def process_version_10_annot_file(graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage):
+def process_version_10_annot_file(tax_ids, graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage):
 
     Annot = {}
     Annot['prot_IDs'] = []
@@ -218,20 +220,27 @@ def save_annots(tax_ids, annot_folder='./string_annot/', min_coverage=0.005, max
         subprocess.run(['gunzip', '-f', go_path + '.gz'])
 
     if version == '11':
-        ii, jj, Annot = process_version_11_annot_file(graph, root_terms, go_path, annot_folder, min_coverage, max_coverage)
+        ii, jj, Annot = process_version_11_annot_file(tax_ids, graph, root_terms, go_path, annot_folder, min_coverage, max_coverage)
     elif version == '10':
-        ii, jj, Annot = process_version_10_annot_file(graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage)
+        ii, jj, Annot = process_version_10_annot_file(tax_ids, graph, root_terms, evidence_codes, go_path, annot_folder, min_coverage, max_coverage)
 
     
 
 if __name__ == '__main__':
-    tax_ids = sys.argv[1].split(',')
-    annot_folder = sys.argv[2]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('tax_ids', type=str)
+    parser.add_argument('annot_folder', type=str)
+    parser.add_argument('min_coverage', type=float)
+    parser.add_argument('max_coverage', type=float)
+    parser.add_argument('--string_version', type=str, default='11', help='STRING version to pull data from.')
+    args = parser.parse_args()
+    tax_ids = args.tax_ids.split(',')
+    annot_folder = args.annot_folder
     if annot_folder[-1] != '/':
         annot_folder += '/'
-    if len(sys.argv) > 3:
-        string_version = sys.argv[3]
-    else:
-        string_version = '11'
-    save_annots(tax_ids, annot_folder=annot_folder, version=string_version)
+    string_version = args.string_version
+    print(string_version)
+    min_coverage = args.min_coverage
+    max_coverage = args.max_coverage
+    save_annots(tax_ids, annot_folder=annot_folder, min_coverage=min_coverage, max_coverage=max_coverage, version=string_version)
 
