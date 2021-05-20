@@ -100,7 +100,6 @@ def get_single_rwr(tax_id, network_folder):
 
 
 def save_single_isorank_block(tax_id_combo, alpha, network_folder, blast_folder, block_matrix_folder, rand_init, ones_init, used_tax_ids=None, version=None, set_iterations=None):
-    print('Set iterations inside save_single_isorank_block: ' + str(set_iterations))
     tax_id_1 = tax_id_combo[0]
     tax_id_2 = tax_id_combo[1]
     if used_tax_ids is None: # for left out matrix IsoRank calculation
