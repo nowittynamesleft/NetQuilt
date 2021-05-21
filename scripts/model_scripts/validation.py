@@ -10,7 +10,6 @@ from keras.models import Model
 from keras.layers import Input, Dense, maximum, BatchNormalization, Dropout
 from keras.optimizers import SGD, Adagrad
 from keras.callbacks import EarlyStopping
-import talos as ta
 from keras.wrappers.scikit_learn import KerasClassifier
 import matplotlib.pyplot as plt
 import pickle
